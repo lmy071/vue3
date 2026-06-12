@@ -1,3 +1,75 @@
+/**
+ * resolveType.ts —— TypeScript 类型解析引擎
+ *
+ * ## 功能概述
+ * 解析 `<script setup>` 中的 TS 类型声明，推断 Vue 宏（defineProps/defineEmits/defineModel）
+ * 所需的运行时类型信息。这是 compiler-sfc 中最大的文件（2253 行），实现了一个精简的
+ * TS 类型系统引擎。
+ *
+ * ## 核心概念
+ *
+ * ### TypeScope —— 类型作用域
+ * 每个文件 → 一个 TypeScope，包含：
+ * - imports：导入映射（local → Import）
+ * - types：类型声明映射（name → AST node）
+ * - declares：declare 声明映射
+ * - exportedTypes / exportedDeclares：导出类型
+ * - isGenericScope：泛型作用域标记
+ *
+ * ### 类型解析流程
+ *
+ * ```
+ * TS 类型声明
+ *     │
+ *     ▼
+ * resolveTypeElements() ── 递归解析类型 AST → ResolvedElements { props, calls }
+ *     │
+ *     ├── TSTypeLiteral / TSInterfaceDeclaration → 提取成员
+ *     ├── TSUnionType / TSIntersectionType → 合并（mergeElements）
+ *     ├── TSTypeReference → 解析类型引用（resolveTypeReference）
+ *     ├── TSMappedType → 解析映射类型
+ *     ├── TSIndexedAccessType → 解析索引访问
+ *     └── 内置工具类型 → Record/Pick/Partial/...
+ *     │
+ *     ▼
+ * inferRuntimeType() ── 单个类型节点 → 运行时类型名数组
+ *     │
+ *     ├── TSStringKeyword → ['String']
+ *     ├── TSNumberKeyword → ['Number']
+ *     ├── TSBooleanKeyword → ['Boolean']
+ *     ├── TSFunctionType → ['Function']
+ *     ├── TSObjectKeyword → ['Object']
+ *     ├── 联合类型 → ['String', 'Number', ...]
+ *     └── 未知 → ['null'] 或 [UNKNOWN_TYPE]
+ * ```
+ *
+ * ## 文件系统交互
+ *
+ * 当需要解析跨文件类型时（如 import type），resolveType.ts 会：
+ * 1. 查找导入源文件路径
+ * 2. 读取文件内容
+ * 3. 用 babel 解析为 AST
+ * 4. 创建新的 TypeScope
+ * 5. 递归解析目标类型
+ *
+ * 文件级缓存确保重复引用不会重复解析。
+ *
+ * ## 缓存架构
+ *
+ * - **typeCache**：文件路径 → 已解析的 TypeScope（LRU）
+ * - **_resolvedElements**：AST node 级别的缓存（避免重复解析同一节点）
+ * - **dep 追踪**：recordScopeDep 记录跨文件依赖，用于 HMR 失效
+ *
+ * ## 已知限制
+ *
+ * - 不支持复杂泛型约束
+ * - 不支持条件类型（T extends U ? X : Y）
+ * - 不支持模板字面量类型
+ * - 跨文件解析依赖文件系统（需真实文件路径）
+ * - 通过 @vue-ignore 注释可跳过特定类型检查
+ */
+
+import type {
 import type {
   Expression,
   Identifier,
@@ -113,6 +185,10 @@ interface WithScope {
 type ScopeTypeNode = Node &
   WithScope & { _ns?: TSModuleDeclaration & WithScope }
 
+/**
+ * TypeScope —— 每个文件的类型作用域
+ * 存储文件内的 imports / types / declares / 导出类型
+ */
 export class TypeScope {
   constructor(
     public filename: string,
@@ -164,6 +240,12 @@ function recordResolvedElementDeps(
 /**
  * Resolve arbitrary type node to a list of type elements that can be then
  * mapped to runtime props or emits.
+ */
+/**
+ * resolveTypeElements —— 核心类型解析引擎
+ * 将 TS 类型 AST 节点递归解析为 ResolvedElements { props, calls }
+ * 支持 TSTypeLiteral、TSUnionType、TSMappedType 等所有核心 TS 类型节点
+ * @vue-ignore 注释可跳过特定类型
  */
 export function resolveTypeElements(
   ctx: TypeResolveContext,
@@ -874,6 +956,9 @@ let loadTS: (() => typeof TS) | undefined
 /**
  * @private
  */
+/**
+ * registerTS —— 注册 TypeScript 模块（懒加载）
+ */
 export function registerTS(_loadTS: () => typeof TS): void {
   loadTS = () => {
     try {
@@ -1203,6 +1288,9 @@ const fileToGlobalScopeCache = createCache<TypeScope>()
 /**
  * @private
  */
+/**
+ * invalidateTypeCache —— 使文件类型缓存失效（HMR）
+ */
 export function invalidateTypeCache(filename: string): void {
   filename = normalizePath(filename)
   fileToScopeCache.delete(filename)
@@ -1212,6 +1300,10 @@ export function invalidateTypeCache(filename: string): void {
   if (affectedConfig) tsConfigCache.delete(affectedConfig)
 }
 
+/**
+ * fileToScope —— 文件路径 → TypeScope
+ * 读取文件 → babel 解析 → 提取 imports + type declarations
+ */
 export function fileToScope(
   ctx: TypeResolveContext,
   filename: string,
@@ -1611,6 +1703,9 @@ function attachNamespace(
   }
 }
 
+/**
+ * recordImports —— AST body → { localName: { source, imported } }
+ */
 export function recordImports(body: Statement[]): Record<string, Import> {
   const imports: TypeScope['imports'] = Object.create(null)
   for (const s of body) {
@@ -1631,6 +1726,12 @@ function recordImport(node: Node, imports: TypeScope['imports']) {
   }
 }
 
+/**
+ * inferRuntimeType —— TS 类型 → Vue 运行时类型名
+ * string→String, number→Number, boolean→Boolean, Function→Function
+ * Array→Array, Object→Object, 联合类型→去重数组, 未知→UNKNOWN_TYPE
+ * @param isKeyOf - keyof 上下文
+ */
 export function inferRuntimeType(
   ctx: TypeResolveContext,
   node: Node & MaybeWithScope,
@@ -2232,6 +2333,9 @@ function resolveReturnType(
   }
 }
 
+/**
+ * resolveUnionType —— 解析联合类型的运行时类型（去重）
+ */
 export function resolveUnionType(
   ctx: TypeResolveContext,
   node: Node & MaybeWithScope & { _resolvedElements?: ResolvedElements },
