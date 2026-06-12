@@ -1,3 +1,39 @@
+/**
+ * definePropsDestructure.ts —— Props 解构变换
+ *
+ * ## 功能概述
+ * 实现 Vue 3.5 的响应式 Props 解构特性。
+ * 当 `defineProps` 使用解构时，编译器自动将解构变量引用
+ * 转换为 `__props.xxx` 访问，保持响应性。
+ *
+ * ## 三步流程
+ *
+ * ### 1. processPropsDestructure（收集阶段）
+ * 遍历 `defineProps` 的解构模式，注册每个 prop：
+ * - 简单解构：`const { foo } = defineProps(...)` → foo → __props.foo
+ * - 默认值：`const { foo = 123 }` → foo → __props.foo（含默认值）
+ * - 别名：`const { foo: bar }` → bar → __props.foo（PROPS_ALIASED）
+ * - rest：`const { ...rest }` → rest → SETUP_REACTIVE_CONST
+ *
+ * ### 2. transformDestructuredProps（变换阶段）
+ * 遍历 script setup AST，重写所有对解构 prop 的引用：
+ * - 属性简写：`{ foo }` → `{ foo: __props.foo }`
+ * - 一般引用：`foo` → `__props.foo`
+ * - 赋值禁止：`foo = x` → 报错（props 只读）
+ *
+ * ### 3. 作用域管理
+ * 使用 scope stack 追踪变量遮蔽：
+ * - 函数参数 / catch / for 循环 → 新作用域
+ * - 局部声明的同名变量 → 标记为非 prop 绑定
+ * - 嵌套作用域中的 props 引用 → 正确穿透重写
+ *
+ * ## 安全校验
+ * - **watch(xxx)** → 报错，提示使用 getter
+ * - **toRef(xxx)** → 报错，提示使用 getter
+ * - **计算键** → 报错（不支持）
+ * - **嵌套解构** → 报错（不支持）
+ */
+
 import type {
   BlockStatement,
   Expression,
@@ -61,7 +97,7 @@ export function processPropsDestructure(
       }
 
       if (prop.value.type === 'AssignmentPattern') {
-        // default value { foo = 123 }
+        // 默认值：{ foo = 123 }
         const { left, right } = prop.value
         if (left.type !== 'Identifier') {
           ctx.error(
@@ -71,7 +107,7 @@ export function processPropsDestructure(
         }
         registerBinding(propKey, left.name, right)
       } else if (prop.value.type === 'Identifier') {
-        // simple destructure
+        // 简单解构：{ foo }
         registerBinding(propKey, prop.value.name)
       } else {
         ctx.error(
@@ -80,9 +116,8 @@ export function processPropsDestructure(
         )
       }
     } else {
-      // rest spread
+      // rest 展开：{ ...rest }
       ctx.propsDestructureRestId = (prop.argument as Identifier).name
-      // register binding
       ctx.bindingMetadata[ctx.propsDestructureRestId] =
         BindingTypes.SETUP_REACTIVE_CONST
     }
@@ -90,8 +125,8 @@ export function processPropsDestructure(
 }
 
 /**
- * true -> prop binding
- * false -> local binding
+ * true → prop 绑定
+ * false → 局部绑定
  */
 type Scope = Record<string, boolean>
 
@@ -171,8 +206,7 @@ export function transformDestructuredProps(
         isRoot && decl.init && isCallOf(unwrapTSNode(decl.init), 'defineProps')
       for (const id of extractIdentifiers(decl.id)) {
         if (isDefineProps) {
-          // for defineProps destructure, only exclude them since they
-          // are already passed in as knownProps
+          // defineProps 解构 → 排除（已作为 knownProps 传入）
           excludedIds.add(id)
         } else {
           registerLocalBinding(id)
@@ -190,20 +224,18 @@ export function transformDestructuredProps(
     }
 
     if (isStaticProperty(parent) && parent.shorthand) {
-      // let binding used in a property shorthand
-      // skip for destructure patterns
+      // 属性简写 → 展开：{ prop } → { prop: __props.prop }
       if (
         !(parent as any).inPattern ||
         isInDestructureAssignment(parent, parentStack)
       ) {
-        // { prop } -> { prop: __props.prop }
         ctx.s.appendLeft(
           id.end! + ctx.startOffset!,
           `: ${genPropsAccessExp(propsLocalToPublicMap[id.name])}`,
         )
       }
     } else {
-      // x --> __props.x
+      // 一般引用 → x → __props.x
       ctx.s.overwrite(
         id.start! + ctx.startOffset!,
         id.end! + ctx.startOffset!,
@@ -225,14 +257,14 @@ export function transformDestructuredProps(
     }
   }
 
-  // check root scope first
+  // 先遍历根作用域
   const ast = ctx.scriptSetupAst!
   walkScope(ast, true)
   walk(ast, {
     enter(node: Node, parent: Node | null) {
       parent && parentStack.push(parent)
 
-      // skip type nodes
+      // 跳过类型节点
       if (
         parent &&
         parent.type.startsWith('TS') &&
@@ -241,10 +273,11 @@ export function transformDestructuredProps(
         return this.skip()
       }
 
+      // 安全检查：watch / toRef 不能直接传解构 prop
       checkUsage(node, 'watch', vueImportAliases.watch)
       checkUsage(node, 'toRef', vueImportAliases.toRef)
 
-      // function scopes
+      // 函数作用域
       if (isFunctionType(node)) {
         pushScope()
         walkFunctionParams(node, registerLocalBinding)
@@ -254,7 +287,7 @@ export function transformDestructuredProps(
         return
       }
 
-      // catch param
+      // catch 参数
       if (node.type === 'CatchClause') {
         pushScope()
         if (node.param && node.param.type === 'Identifier') {
@@ -264,7 +297,7 @@ export function transformDestructuredProps(
         return
       }
 
-      // for loops: loop variable should be scoped to the loop
+      // for 循环变量
       if (
         node.type === 'ForOfStatement' ||
         node.type === 'ForInStatement' ||
@@ -281,13 +314,14 @@ export function transformDestructuredProps(
         return
       }
 
-      // non-function block scopes
+      // 非函数块作用域
       if (node.type === 'BlockStatement' && !isFunctionType(parent!)) {
         pushScope()
         walkScope(node)
         return
       }
 
+      // 标识符引用 → 重写为 __props.xxx
       if (node.type === 'Identifier') {
         if (
           isReferencedIdentifier(node, parent!, parentStack) &&
