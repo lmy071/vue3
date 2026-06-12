@@ -1,3 +1,34 @@
+/**
+ * utils.ts —— script 编译通用工具函数
+ *
+ * ## 功能概述
+ * 脚本编译过程中使用的通用工具函数和常量集合。
+ *
+ * ## 主要工具
+ *
+ * ### AST 操作
+ * - **resolveObjectKey**：解析对象属性键（字符串/数字字面量/非计算标识符）
+ * - **isLiteralNode**：检测字面量节点
+ * - **isCallOf**：检测是否为指定函数调用
+ * - **getId**：从 Identifier 或 StringLiteral 获取名称/值
+ * - **getStringLiteralKey**：从 TS 属性签名获取键（处理计算属性）
+ *
+ * ### 字符串/路径
+ * - **concatStrings**：连接过滤空值的字符串列表
+ * - **toRuntimeTypeString**：运行态类型数组 → 字符串表示
+ * - **normalizePath / joinPaths**：跨平台路径处理
+ * - **getEscapedPropName**：特殊符号键 JSON 转义（如 `onUpdate:modelValue`）
+ *
+ * ### 语言检测
+ * - **isJS / isTS**：判断语言标识（js/jsx/ts/tsx）
+ *
+ * ### 文件名规范化
+ * - **createGetCanonicalFileName**：TS 模块解析的大小写处理工厂
+ *
+ * ### Import 分析
+ * - **getImportedName**：获取 import specifier 的名称
+ */
+
 import type {
   CallExpression,
   Expression,
@@ -38,6 +69,12 @@ export function isLiteralNode(node: Node): boolean {
   return node.type.endsWith('Literal')
 }
 
+/**
+ * 检测是否是指定函数的调用
+ *
+ * @param node 待检测节点
+ * @param test 函数名（字符串）或名称匹配函数
+ */
 export function isCallOf(
   node: Node | null | undefined,
   test: string | ((id: string) => boolean) | null | undefined,
@@ -108,9 +145,9 @@ function toFileNameLowerCase(x: string) {
 }
 
 /**
- * We need `getCanonicalFileName` when creating ts module resolution cache,
- * but TS does not expose it directly. This implementation is replicated from
- * the TS source code.
+ * 创建文件名规范化函数（用于 TS 模块解析缓存）
+ *
+ * 复制自 TypeScript 源码实现（不直接暴露 getCanonicalFileName）。
  */
 export function createGetCanonicalFileName(
   useCaseSensitiveFileNames: boolean,
@@ -118,8 +155,7 @@ export function createGetCanonicalFileName(
   return useCaseSensitiveFileNames ? identity : toFileNameLowerCase
 }
 
-// in the browser build, the polyfill doesn't expose posix, but defaults to
-// posix behavior.
+// 浏览器构建中 polyfill 不暴露 posix 但默认行为是 posix
 const normalize = (path.posix || path).normalize
 const windowsSlashRE = /\\/g
 export function normalizePath(p: string): string {
@@ -130,8 +166,8 @@ export const joinPaths: (...paths: string[]) => string = (path.posix || path)
   .join
 
 /**
- * key may contain symbols
- * e.g. onUpdate:modelValue -> "onUpdate:modelValue"
+ * 属性名可能包含符号时需 JSON 转义
+ * 如 `onUpdate:modelValue` → `"onUpdate:modelValue"`
  */
 export const propNameEscapeSymbolsRE: RegExp =
   /[ !"#$%&'()*+,./:;<=>?@[\\\]^`{|}~\-]/
@@ -140,7 +176,13 @@ export function getEscapedPropName(key: string): string {
   return propNameEscapeSymbolsRE.test(key) ? JSON.stringify(key) : key
 }
 
+/**
+ * 检测语言标识是否为 JS 系列
+ */
 export const isJS = (...langs: (string | null | undefined)[]): boolean =>
   langs.some(lang => lang === 'js' || lang === 'jsx')
+/**
+ * 检测语言标识是否为 TS 系列
+ */
 export const isTS = (...langs: (string | null | undefined)[]): boolean =>
   langs.some(lang => lang === 'ts' || lang === 'tsx')
