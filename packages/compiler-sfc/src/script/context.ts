@@ -1,3 +1,52 @@
+/**
+ * context.ts —— 脚本编译上下文
+ *
+ * ## 功能概述
+ * ScriptCompileContext 是 SFC 脚本编译的核心状态容器。
+ * 它在编译过程中维护所有编译器宏的状态、导入分析和代码生成信息。
+ *
+ * ## 核心职责
+ *
+ * ### 状态管理
+ * 追踪每个编译器宏的调用状态：
+ * - hasDefinePropsCall / hasDefineEmitCall / hasDefineExposeCall / etc.
+ * - propsCall / propsDecl / propsRuntimeDecl / propsTypeDecl
+ * - emitsRuntimeDecl / emitsTypeDecl / emitDecl
+ * - modelDecls（defineModel 声明表）
+ * - optionsRuntimeDecl
+ *
+ * ### 导入分析
+ * - **userImports**：用户 import 映射
+ * - **helperImports**：编译器运行时 helper 导入（如 _useModel）
+ * - **helper()**：自动注册并返回 `_key` 格式的 helper 引用
+ *
+ * ### 代码生成
+ * - **MagicString (s)**：基于位置的源码替换工具
+ * - **bindingMetadata**：模板识别的绑定元数据
+ *
+ * ### 环境检测
+ * - **isJS / isTS**：脚本语言类型
+ * - **isCE**：自定义元素模式
+ *
+ * ## 文件构造函数流程
+ *
+ * 1. 判断脚本语言（JS/TS）和自定义元素模式
+ * 2. 解析 parser plugins（JSX/TypeScript/装饰器等）
+ * 3. 解析 `<script>` 和 `<script setup>` AST
+ *
+ * ## 错误报告
+ * - **warn()**：警告（使用 warnOnce 防重复）
+ * - **error()**：抛出带源码定位的异常
+ *
+ * ## resolveParserPlugins
+ *
+ * 根据语言标识返回 babel parser plugins：
+ * - importAttributes → 默认开启（HTML spec 兼容）
+ * - jsx → jsx/tsx/mtsx 自动开启
+ * - TypeScript → 自动开启 typescript + decorators-legacy + explicitResourceManagement
+ * - 用户自定义 plugins → 追加到末尾
+ */
+
 import type { CallExpression, Node, ObjectPattern, Program } from '@babel/types'
 import type { SFCDescriptor } from '../parse'
 import { generateCodeFrame, isArray } from '@vue/shared'
@@ -65,18 +114,22 @@ export class ScriptCompileContext {
   // codegen
   bindingMetadata: BindingMetadata = {}
   helperImports: Set<string> = new Set()
+  /**
+   * 返回带 `_` 前缀的 helper 函数引用名
+   * 并自动记录到 helperImports 中以生成 import
+   */
   helper(key: string): string {
     this.helperImports.add(key)
     return `_${key}`
   }
 
   /**
-   * to be exposed on compiled script block for HMR cache busting
+   * 编译依赖集合（用于 HMR 缓存失效）
    */
   deps?: Set<string>
 
   /**
-   * cache for resolved fs
+   * 缓存的文件系统实例
    */
   fs?: NonNullable<SFCScriptCompileOptions['fs']>
 
@@ -99,7 +152,7 @@ export class ScriptCompileContext {
           ? customElement
           : customElement(filename)
     }
-    // resolve parser plugins
+    // 解析 parser plugins
     const plugins: ParserPlugin[] = resolveParserPlugins(
       (scriptLang || scriptSetupLang)!,
       options.babelParserPlugins,
@@ -164,6 +217,15 @@ function generateError(
   )}`
 }
 
+/**
+ * 根据语言标识返回 babel parser plugins
+ *
+ * 默认行为：
+ * - 所有语言 → importAttributes
+ * - jsx/tsx/mtsx → jsx
+ * - ts/mts/tsx/cts/mtsx → typescript + decorators-legacy + explicitResourceManagement
+ * - 用户自定义 plugins → 追加
+ */
 export function resolveParserPlugins(
   lang: string,
   userPlugins?: ParserPlugin[],
@@ -184,8 +246,7 @@ export function resolveParserPlugins(
   if (lang === 'jsx' || lang === 'tsx' || lang === 'mtsx') {
     plugins.push('jsx')
   } else if (userPlugins) {
-    // If don't match the case of adding jsx
-    // should remove the jsx from user options
+    // 非 jsx 语言但有用户配置 → 移除 jsx plugin
     userPlugins = userPlugins.filter(p => p !== 'jsx')
   }
   if (
