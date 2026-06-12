@@ -1,3 +1,24 @@
+/**
+ * index.ts —— @vue/reactivity 包的公共 API 入口
+ *
+ * 本文件是 reactivity 包的导出聚合（barrel export），将所有模块的
+ * 公开 API 集中重导出，供 runtime-core 和最终用户使用。
+ *
+ * ## 模块划分
+ *
+ * | 模块 | 主要导出 | 职责 |
+ * |------|---------|------|
+ * | ref.ts | ref, shallowRef, isRef, toRef, unref, proxyRefs, customRef, triggerRef | ref 响应式引用 |
+ * | reactive.ts | reactive, readonly, isReactive, isReadonly, shallowReactive, shallowReadonly, markRaw, toRaw | 对象响应式转换 |
+ * | computed.ts | computed, ComputedRef, WritableComputedRef | 计算属性 |
+ * | effect.ts | effect, stop, ReactiveEffect, EffectFlags, onEffectCleanup, pauseTracking, enableTracking | 副作用系统 |
+ * | dep.ts | track, trigger, ITERATE_KEY, ARRAY_ITERATE_KEY | 依赖追踪核心 |
+ * | effectScope.ts | effectScope, EffectScope, getCurrentScope, onScopeDispose | 副作用作用域 |
+ * | arrayInstrumentations.ts | reactiveReadArray, shallowReadArray | 数组响应式读取辅助 |
+ * | constants.ts | TrackOpTypes, TriggerOpTypes, ReactiveFlags | 常量枚举 |
+ * | watch.ts | watch, getCurrentWatcher, traverse, onWatcherCleanup | 侦听器 |
+ */
+
 export {
   ref,
   shallowRef,
