@@ -1,3 +1,62 @@
+/**
+ * compileScript.ts —— <script setup> 编译核心
+ *
+ * ## 功能概述
+ * 编译 SFC 的 `<script setup>` 及普通 `<script>` 为最终 JS 输出。
+ * 这是 compiler-sfc 中最复杂的模块，实现了完整的 11 步编译流水线。
+ *
+ * ## 编译流水线（11 步）
+ *
+ * ```
+ * 输入: SFCDescriptor + SFCScriptCompileOptions
+ *
+ * Step 1:  导入处理 —— 遍历 imports，去重，识别宏导入
+ * Step 2:  声明分析 —— walkDeclaration 推断绑定类型（SETUP_CONST / SETUP_REF / SETUP_LET...）
+ * Step 3:  Props 解构变换 —— transformDestructuredProps 重写为 __props.xxx
+ * Step 4:  作用域引用检查 —— checkInvalidScopeReference 防止闭包 Bug
+ * Step 5:  内容裁剪 —— 移除非 script 部分
+ * Step 6:  绑定元数据 —— analyzeScriptBindings + 用户导入 → BindingMetadata
+ * Step 7:  CSS Vars 注入 —— useCssVars() + unref()
+ * Step 8:  setup 参数 —— 解析 props/emit/expose 参数签名
+ * Step 9:  return 语句 —— 生成 setup 返回值
+ * Step 10: 默认导出 —— 生成 export default / const genDefaultAs
+ * Step 11: 辅助函数导入 —— helperImports → import { ... } from 'vue'
+ * ```
+ *
+ * ## 绑定类型（BindingTypes）
+ *
+ * | 类型 | 含义 | 模板编译行为 |
+ * |------|------|-------------|
+ * | LITERAL_CONST | 静态字面量常量 | 直接内联到模板 |
+ * | SETUP_CONST | setup 常量 | 直接访问，不用 unref |
+ * | SETUP_REACTIVE_CONST | reactive() 常量 | 直接访问，不用 unref |
+ * | SETUP_REF | ref/computed 等 | 自动 .value 解包 |
+ * | SETUP_MAYBE_REF | 可能是 ref | 运行时判断解包 |
+ * | SETUP_LET | let 变量 | getter + setter 访问 |
+ * | PROPS | props | props.xxx 访问 |
+ * | PROPS_ALIASED | props 别名 | 同 props |
+ *
+ * ## 内联 vs 非内联模式
+ *
+ * - **内联模式**（inlineTemplate=true）：模板直接编译为 render 函数内嵌在 setup 中
+ *   - 优点：一个函数闭包，更好的 tree-shaking
+ *   - 缺点：不支持热更新
+ * - **非内联模式**：模板单独编译，script 导出 setup 绑定
+ *   - 优点：模板可独立 HMR
+ *   - 缺点：运行时开销稍高
+ *
+ * ## withDefaults 处理
+ *
+ * `withDefaults(defineProps<Props>(), { ... })` 被处理为:
+ * - 收集默认值 → propsRuntimeDefaults
+ * - 生成时通过 mergeDefaults 合并
+ *
+ * ## v-model 特殊处理（#11265）
+ *
+ * 当 reactive() 绑定的 const 用于 v-model 时，
+ * 编译器自动降级为 let，因为 v-model 通过赋值更新。
+ */
+
 import {
   BindingTypes,
   UNREF,
@@ -248,7 +307,11 @@ export function compileScript(
     ctx.s.move(start, end, 0)
   }
 
-  function registerUserImport(
+  /**
+ * 注册用户 import 并跟踪其在模板中的使用情况
+ * 用于后续 unused import 裁剪和 HMR 判断
+ */
+function registerUserImport(
     source: string,
     local: string,
     imported: string,
@@ -279,7 +342,11 @@ export function compileScript(
     }
   }
 
-  function checkInvalidScopeReference(node: Node | undefined, method: string) {
+  /**
+ * 检查宏参数是否引用了 setup 局部变量
+ * 宏在编译时被提升到模块作用域，不能引用 setup() 内的变量
+ */
+function checkInvalidScopeReference(node: Node | undefined, method: string) {
     if (!node) return
     walkIdentifiers(node, id => {
       const binding = setupBindings[id.name]
@@ -298,6 +365,10 @@ export function compileScript(
 
   const scriptAst = ctx.scriptAst
   const scriptSetupAst = ctx.scriptSetupAst!
+
+  // ═══════════════════════════════════════════
+  // STEP 1: 导入处理 —— 遍历 import，去重，识别宏
+  // ═══════════════════════════════════════════
 
   // 1.1 walk import declarations of <script>
   if (scriptAst) {
@@ -398,6 +469,10 @@ export function compileScript(
     const { source, imported, local } = ctx.userImports[key]
     if (source === 'vue') vueImportAliases[imported] = local
   }
+
+  // ═══════════════════════════════════════════
+  // STEP 2: 声明分析 —— walkDeclaration 推断绑定类型
+  // ═══════════════════════════════════════════
 
   // 2.1 process normal <script> body
   if (script && scriptAst) {
@@ -703,12 +778,16 @@ export function compileScript(
     }
   }
 
-  // 3 props destructure transform
+  // ═══════════════════════════════════════════
+  // STEP 3: Props 解构变换 → __props.xxx
+  // ═══════════════════════════════════════════
   if (ctx.propsDestructureDecl) {
     transformDestructuredProps(ctx, vueImportAliases)
   }
 
-  // 4. check macro args to make sure it doesn't reference setup scope
+  // ═══════════════════════════════════════════
+  // STEP 4: 作用域引用检查 —— 防止宏访问 setup 局部变量（闭包 Bug）
+  // ═══════════════════════════════════════════
   // variables
   checkInvalidScopeReference(ctx.propsRuntimeDecl, DEFINE_PROPS)
   checkInvalidScopeReference(ctx.propsRuntimeDefaults, DEFINE_PROPS)
@@ -721,7 +800,9 @@ export function compileScript(
     }
   }
 
-  // 5. remove non-script content
+  // ═══════════════════════════════════════════
+  // STEP 5: 内容裁剪 —— 移除非 script 的 template/style 区域
+  // ═══════════════════════════════════════════
   if (script) {
     if (startOffset < scriptStartOffset!) {
       // <script setup> before <script>
@@ -740,7 +821,9 @@ export function compileScript(
     ctx.s.remove(endOffset, source.length)
   }
 
-  // 6. analyze binding metadata
+  // ═══════════════════════════════════════════
+  // STEP 6: 绑定元数据 —— 合并所有绑定信息供模板编译使用
+  // ═══════════════════════════════════════════
   // `defineProps` & `defineModel` also register props bindings
   if (scriptAst) {
     Object.assign(ctx.bindingMetadata, analyzeScriptBindings(scriptAst.body))
@@ -763,8 +846,8 @@ export function compileScript(
     ctx.bindingMetadata[key] = setupBindings[key]
   }
 
-  // #11265, https://github.com/vitejs/rolldown-vite/issues/432
-  // 6.1 demote `const foo = reactive()` to `let` when used as v-model target.
+  // STEP 6.1: v-model reactive const → let 降级（#11265）
+  // reactive() + v-model 需要赋值，编译为 let
   // In non-inline template compilation, v-model assigns via `$setup.foo = $event`,
   // which requires a SETUP_LET binding (getter + setter) to keep script state in sync.
   // In inline mode, it generates `foo = $event`, which also requires `let`.
@@ -812,7 +895,9 @@ export function compileScript(
     }
   }
 
-  // 7. inject `useCssVars` calls
+  // ═══════════════════════════════════════════
+  // STEP 7: CSS Vars 注入 —— useCssVars() + unref()
+  // ═══════════════════════════════════════════
   if (
     sfc.cssVars.length &&
     // no need to do this when targeting SSR
@@ -831,7 +916,9 @@ export function compileScript(
     )
   }
 
-  // 8. finalize setup() argument signature
+  // ═══════════════════════════════════════════
+  // STEP 8: setup 参数签名 —— __props / { emit, expose }
+  // ═══════════════════════════════════════════
   let args = `__props`
   if (ctx.propsTypeDecl) {
     // mark as any and only cast on assignment
@@ -883,7 +970,11 @@ export function compileScript(
   }
 
   let templateMap
-  // 9. generate return statement
+  // ═══════════════════════════════════════════
+  // STEP 9: 生成 setup 返回值
+  //   - 非内联：返回所有绑定 + import getters
+  //   - 内联：编译模板为 render 函数
+  // ═══════════════════════════════════════════
   let returned
   // ensure props bindings register before compile template in inline mode
   const propsDecl = genRuntimeProps(ctx)
@@ -1003,7 +1094,9 @@ export function compileScript(
     ctx.s.appendRight(endOffset, `\nreturn ${returned}\n}\n\n`)
   }
 
-  // 10. finalize default export
+  // ═══════════════════════════════════════════
+  // STEP 10: 默认导出 —— defineComponent / Object.assign / 直接对象
+  // ═══════════════════════════════════════════
   const genDefaultAs = options.genDefaultAs
     ? `const ${options.genDefaultAs} =`
     : `export default`
@@ -1076,7 +1169,9 @@ export function compileScript(
     }
   }
 
-  // 11. finalize Vue helper imports
+  // ═══════════════════════════════════════════
+  // STEP 11: 辅助函数导入 —— import { helper as _helper } from 'vue'
+  // ═══════════════════════════════════════════
   if (ctx.helperImports.size > 0) {
     const runtimeModuleName =
       options.templateOptions?.compilerOptions?.runtimeModuleName
@@ -1126,6 +1221,17 @@ function registerBinding(
   bindings[node.name] = type
 }
 
+/**
+ * 遍历声明推断绑定类型
+ *
+ * 决策树：
+ * - 静态字面量 → LITERAL_CONST（hoist 到模块作用域）
+ * - reactive() → SETUP_REACTIVE_CONST / SETUP_LET
+ * - ref/computed/... → SETUP_REF
+ * - 其他 const → SETUP_MAYBE_REF（运行时判断）
+ * - let → SETUP_LET
+ * - defineProps/defineEmits/defineSlots → SETUP_CONST
+ */
 function walkDeclaration(
   from: 'script' | 'scriptSetup',
   node: Declaration,
@@ -1305,6 +1411,7 @@ function walkPattern(
   }
 }
 
+/** 判断表达式结果不可能是 ref（不需要 .value 解包） */
 function canNeverBeRef(node: Node, userReactiveImport?: string): boolean {
   if (isCallOf(node, userReactiveImport)) {
     return true
@@ -1333,6 +1440,7 @@ function canNeverBeRef(node: Node, userReactiveImport?: string): boolean {
   }
 }
 
+/** 递归判断节点是否为纯静态值（编译时已知） */
 function isStaticNode(node: Node): boolean {
   node = unwrapTSNode(node)
 
@@ -1370,6 +1478,7 @@ function isStaticNode(node: Node): boolean {
   return false
 }
 
+/** 合并 script 和 template 的 source map（内联模式） */
 export function mergeSourceMaps(
   scriptMap: RawSourceMap,
   templateMap: RawSourceMap,
