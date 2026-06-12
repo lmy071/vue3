@@ -1,3 +1,51 @@
+/**
+ * pluginScoped.ts —— Scoped CSS PostCSS 插件
+ *
+ * ## 功能概述
+ * 实现 Vue SFC 的 Scoped CSS 特性。
+ * 为所有选择器添加 `[data-v-xxxxx]` 属性选择器，
+ * 并处理 :deep()、:slotted()、:global() 等深度选择器。
+ *
+ * ## 选择器重写规则
+ *
+ * | 原始 | 编译后 | 说明 |
+ * |------|--------|------|
+ * | `.foo` | `.foo[data-v-xxx]` | 普通选择器后置 |
+ * | `*` | `[data-v-xxx]` | 通配符替换 |
+ * | `:deep(.bar)` | `[data-v-xxx] .bar` | 穿透当前组件 |
+ * | `:slotted(.slot)` | `[data-v-xxx-s] .slot` | slot 内容限定 |
+ * | `:global(.baz)` | `.baz` | 全局样式（不添加属性） |
+ * | `>>> .x` | `[data-v-xxx] .x` | 已废弃语法 |
+ *
+ * ## Deep 容器的嵌套处理
+ *
+ * 对于 `:is()` / `:where()` / `:has()` / `:not()` 中包含 :deep() 的情况：
+ *
+ * ```
+ * .parent :is(.a, :deep(.b), .c) .child
+ * → .parent :is(.a, [data-v-xxx] .b, .c[data-v-xxx]) .child
+ * ```
+ *
+ * 当 :is/:where/:has 中存在混合选择器且需要拆分时，
+ * 使用 splitSelectorForNestedDeep 将选择器拆分为多条规则。
+ *
+ * ## 关键帧处理
+ *
+ * keyframes 名称会被添加 scoped ID 后缀以避免冲突：
+ * ```
+ * @keyframes fade → @keyframes fade-xxxxx
+ * animation: fade  → animation: fade-xxxxx
+ * ```
+ *
+ * ## 规则提取（extractAndWrapNodes）
+ *
+ * 当 CSS 规则中混合了 rules + declarations 时，
+ * 将 declarations 提取并用 `&` 包装：
+ * ```css
+ * .foo { color: red; .bar { ... } }  →  .foo { .bar { ... } } + .foo { & { color: red } }
+ * ```
+ */
+
 import {
   type AtRule,
   type Container,
@@ -22,26 +70,23 @@ const scopedPlugin: PluginCreator<string> = (id = '') => {
       processRule(id, rule)
     },
     AtRule(node) {
+      // 注册 keyframes 并添加 scoped ID 后缀
       if (keyframesRE.test(node.name) && !node.params.endsWith(`-${shortId}`)) {
-        // register keyframes
         keyframes[node.params] = node.params = node.params + '-' + shortId
       }
     },
     OnceExit(root) {
       if (Object.keys(keyframes).length) {
-        // If keyframes are found in this <style>, find and rewrite animation names
-        // in declarations.
-        // Caveat: this only works for keyframes and animation rules in the same
-        // <style> element.
-        // individual animation-name declaration
+        // 重写 animation / animation-name 中的 keyframes 引用
         root.walkDecls(decl => {
+          // animation-name
           if (animationNameRE.test(decl.prop)) {
             decl.value = decl.value
               .split(',')
               .map(v => keyframes[v.trim()] || v.trim())
               .join(',')
           }
-          // shorthand
+          // animation 简写
           if (animationRE.test(decl.prop)) {
             decl.value = decl.value
               .split(',')
@@ -75,6 +120,7 @@ function processRule(id: string, rule: Rule) {
     return
   }
   processedRules.add(rule)
+  // 判断是否在 deep 容器中
   let deep = false
   let parent: Document | Container | undefined = rule.parent
   while (parent && parent.type !== 'root') {
@@ -103,7 +149,7 @@ function rewriteSelector(
   let shouldInject = !deep
   let hasNestedDeep = false
   let splitForNestedDeep = false
-  // find the last child node to insert attribute selector
+  // 找到最后一个子节点来插入属性选择器
   selector.each(n => {
     // DEPRECATED ">>>" and "/deep/" combinator
     if (
@@ -121,6 +167,7 @@ function rewriteSelector(
 
     if (n.type === 'pseudo') {
       const { value } = n
+      // 容器伪类（:is/:where/:has/:not）中包含 :deep()
       if (isDeepContainerPseudo(n)) {
         const hasDeepSelectors = n.nodes.some(selector =>
           selector.some(isDeepSelector),
@@ -131,6 +178,7 @@ function rewriteSelector(
             selector => !selector.some(isDeepSelector),
           )
           const hasTrailingNodes = selector.index(n) < selector.length - 1
+          // :is/:where/:has 可拆分时 → 拆分为多条规则
           if (
             canSplitDeepContainerPseudo(n) &&
             !deep &&
@@ -151,6 +199,7 @@ function rewriteSelector(
             return false
           }
 
+          // :not 不可拆分 → 当前选择器前插入属性
           if (
             value === ':not' &&
             !deep &&
@@ -161,6 +210,7 @@ function rewriteSelector(
             return
           }
 
+          // 递归处理容器内的每个分支
           n.nodes.forEach(selector =>
             rewriteSelector(
               id,
@@ -179,19 +229,17 @@ function rewriteSelector(
         }
       }
 
-      // deep: inject [id] attribute at the node before the ::v-deep
-      // combinator.
+      // :deep() / ::v-deep() → 穿透，不注入 scoped 属性
       if (value === ':deep' || value === '::v-deep') {
         ;(rule as any).__deep = true
         if (n.nodes.length) {
-          // .foo ::v-deep(.bar) -> .foo[xxxxxxx] .bar
-          // replace the current node with ::v-deep's inner selector
+          // .foo ::v-deep(.bar) → [data-v-xxx] .foo .bar
           let last: selectorParser.Selector['nodes'][0] = n
           n.nodes[0].each(ss => {
             selector.insertAfter(last, ss)
             last = ss
           })
-          // insert a space combinator before if it doesn't already have one
+          // 在前面插入空格 combinator
           const prev = selector.at(selector.index(n) - 1)
           if (!prev || !isSpaceCombinator(prev)) {
             selector.insertAfter(
@@ -203,8 +251,7 @@ function rewriteSelector(
           }
           selector.removeChild(n)
         } else {
-          // DEPRECATED usage
-          // .foo ::v-deep .bar -> .foo[xxxxxxx] .bar
+          // 旧语法：::v-deep .bar → [data-v-xxx] .bar
           warn(
             `${value} usage as a combinator has been deprecated. ` +
               `Use :deep(<inner-selector>) instead of ${value} <inner-selector>.`,
@@ -219,9 +266,7 @@ function rewriteSelector(
         return false
       }
 
-      // slot: use selector inside `::v-slotted` and inject [id + '-s']
-      // instead.
-      // ::v-slotted(.foo) -> .foo[xxxxxxx-s]
+      // :slotted() / ::v-slotted() → [data-v-xxx-s] .foo
       if (value === ':slotted' || value === '::v-slotted') {
         rewriteSelector(
           id,
@@ -236,28 +281,25 @@ function rewriteSelector(
           selector.insertAfter(last, ss)
           last = ss
         })
-        // selector.insertAfter(n, n.nodes[0])
         selector.removeChild(n)
-        // since slotted attribute already scopes the selector there's no
-        // need for the non-slot attribute.
+        // slotted 属性已限定作用域，不需要普通 scoped 属性
         shouldInject = false
         return false
       }
 
-      // global: replace with inner selector and do not inject [id].
-      // ::v-global(.foo) -> .foo
+      // :global() / ::v-global() → 仅保留内部选择器
       if (value === ':global' || value === '::v-global') {
         selector.replaceWith(n.nodes[0])
         return false
       }
     }
 
+    // 通配符 → 替换为属性选择器
     if (n.type === 'universal') {
       const prev = selector.at(selector.index(n) - 1)
       const next = selector.at(selector.index(n) + 1)
-      // * ... {}
       if (!prev) {
-        // * .foo {} -> .foo[xxxxxxx] {}
+        // * .foo {} → .foo[data-v-xxx] {}
         if (next) {
           if (next.type === 'combinator' && next.value === ' ') {
             selector.removeChild(next)
@@ -265,7 +307,7 @@ function rewriteSelector(
           selector.removeChild(n)
           return
         } else {
-          // * {} -> [xxxxxxx] {}
+          // * {} → [data-v-xxx] {}
           node = selectorParser.combinator({
             value: '',
           })
@@ -274,10 +316,11 @@ function rewriteSelector(
           return false
         }
       }
-      // .foo * -> .foo[xxxxxxx] *
+      // .foo * → [data-v-xxx] .foo *
       if (node) return
     }
 
+    // 记录最后一个非伪类/非 combinatior 节点
     if (
       !hasNestedDeep &&
       ((n.type !== 'pseudo' && n.type !== 'combinator') ||
@@ -293,6 +336,7 @@ function rewriteSelector(
     return
   }
 
+  // 如果规则内有子 rule → 提取 declarations
   if (rule.nodes.some(node => node.type === 'rule')) {
     const deep = (rule as any).__deep
     if (!deep) {
@@ -305,6 +349,7 @@ function rewriteSelector(
     shouldInject = deep
   }
 
+  // :is/:where 作为插入点的特殊处理
   if (node && !hasNestedDeep) {
     const { type, value } = node as selectorParser.Node
     if (type === 'pseudo' && (value === ':is' || value === ':where')) {
@@ -318,17 +363,14 @@ function rewriteSelector(
   if (node) {
     ;(node as selectorParser.Node).spaces.after = ''
   } else {
-    // For deep selectors & standalone pseudo selectors,
-    // the attribute selectors are prepended rather than appended.
-    // So all leading spaces must be eliminated to avoid problems.
+    // deep 选择器和独立伪类选择器 → 属性前置而非后置
+    // → 清理开头空白
     selector.first.spaces.before = ''
   }
 
   if (shouldInject) {
     const idToAdd = slotted ? id + '-s' : id
     selector.insertAfter(
-      // If node is null it means we need to inject [id] at the start
-      // insertAfter can handle `null` here
       node as any,
       selectorParser.attribute({
         attribute: idToAdd,
@@ -369,12 +411,19 @@ function isDeepContainerPseudo(
   )
 }
 
+/** :not 不可拆分，仅 :is/:where/:has 可 */
 function canSplitDeepContainerPseudo(node: selectorParser.Pseudo): boolean {
   return (
     node.value === ':is' || node.value === ':where' || node.value === ':has'
   )
 }
 
+/**
+ * 拆分 deep 容器伪类为多条选择器
+ *
+ * :is(.a, :deep(.b)) .child
+ * → .a[data-v-xxx] .child, [data-v-xxx] .b .child
+ */
 function splitSelectorForNestedDeep(
   id: string,
   rule: Rule,
@@ -405,6 +454,12 @@ function splitSelectorForNestedDeep(
   selector.replaceWith(...selectors)
 }
 
+/**
+ * 从 CSS 规则中提取 declarations → 用 `&` 包装
+ *
+ * .foo { color: red; .bar { ... } }
+ * → .foo { .bar { ... } } + .foo { & { color: red } }
+ */
 function extractAndWrapNodes(parentNode: Rule | AtRule) {
   if (!parentNode.nodes) return
   const nodes = parentNode.nodes.filter(
