@@ -1,3 +1,71 @@
+/**
+ * defineProps.ts —— defineProps 编译处理
+ *
+ * ## 功能概述
+ * 处理 `<script setup>` 中的 `defineProps()` 和 `withDefaults()` 宏。
+ *
+ * ## defineProps 调用形式
+ *
+ * ```
+ * // 运行时声明
+ * defineProps({ msg: String, count: { type: Number, required: true } })
+ *
+ * // 纯类型声明
+ * defineProps<{ msg: string; count: number }>()
+ *
+ * // 类型 + withDefaults
+ * const props = withDefaults(defineProps<Props>(), { count: 0 })
+ *
+ * // 解构（Vue 3.5+）
+ * const { msg, count = 0 } = defineProps<{ msg: string; count?: number }>()
+ * ```
+ *
+ * ## 核心流程
+ *
+ * ### processDefineProps
+ * 1. 检测 `defineProps(...)` 调用
+ * 2. 区分类型声明 vs 运行时声明（互斥）
+ * 3. 从运行时声明提取 prop keys → 注册为 PROPS 绑定
+ * 4. 调用 processPropsDestructure 处理解构
+ *
+ * ### processWithDefaults
+ * 1. 检测 `withDefaults()` 包装
+ * 2. 内部递归调用 processDefineProps
+ * 3. 提取默认值表达式
+ * 4. 警告解构 + withDefaults 同时使用（互斥）
+ *
+ * ### genRuntimeProps（代码生成）
+ * - **运行时声明**：直接使用原始声明，接入 mergeDefaults + mergeModels
+ * - **类型声明**：从类型推断运行时 prop 声明（extractRuntimeProps）
+ * - **解构默认值**：生成 factory wrapper（如 `() => (value)`）
+ *
+ * ### extractRuntimeProps
+ * 从 TS 类型声明推断运行时 props：
+ * - resolveTypeElements → 解析类型元素
+ * - inferRuntimeType → 映射到运行时类型（String/Number/Boolean…）
+ * - genRuntimePropFromType → 生成单个 prop 的运行时声明
+ *
+ * ## Prop 声明生成策略
+ *
+ * | 条件 | 开发环境 | 生产环境 |
+ * |------|----------|----------|
+ * | 无默认值 | `{ type: [...], required: true }` | `{}` |
+ * | Boolean 类型 | 保留 type | 保留 type（#4783） |
+ * | Function + 默认值 | 保留 type | 保留 type（#7111） |
+ * | CustomElement | 保留 type | 保留 type（#8989） |
+ *
+ * ## mergeDefaults / mergeModels
+ *
+ * - **mergeDefaults**：合并解构默认值或 withDefaults 到 props 声明
+ * - **mergeModels**：合并 defineModel 生成的 props 到 props 声明
+ *
+ * ## hasStaticWithDefaults
+ *
+ * 判断 withDefaults 的参数是否是纯静态对象字面量。
+ * 是 → 可直接生成默认值声明（优化）
+ * 否 → 需回退到运行时 mergeDefaults
+ */
+
 import type {
   Expression,
   LVal,
@@ -60,7 +128,7 @@ export function processDefineProps(
   ctx.hasDefinePropsCall = true
   ctx.propsRuntimeDecl = node.arguments[0]
 
-  // register bindings
+  // 注册 props 绑定
   if (ctx.propsRuntimeDecl) {
     for (const key of getObjectOrArrayExpressionKeys(ctx.propsRuntimeDecl)) {
       if (!(key in ctx.bindingMetadata)) {
@@ -69,7 +137,7 @@ export function processDefineProps(
     }
   }
 
-  // call has type parameters - infer runtime types from it
+  // 有类型参数 → 从类型推断运行时类型
   if (node.typeParameters) {
     if (ctx.propsRuntimeDecl) {
       ctx.error(
@@ -81,7 +149,7 @@ export function processDefineProps(
     ctx.propsTypeDecl = node.typeParameters.params[0]
   }
 
-  // handle props destructure
+  // 处理 props 解构
   if (!isWithDefaults && declId && declId.type === 'ObjectPattern') {
     processPropsDestructure(ctx, declId)
   }
@@ -176,10 +244,12 @@ export function genRuntimeProps(ctx: ScriptCompileContext): string | undefined {
   }
 }
 
+/**
+ * 从 TS 类型声明推断运行时 props 声明
+ */
 export function extractRuntimeProps(
   ctx: TypeResolveContext,
 ): string | undefined {
-  // this is only called if propsTypeDecl exists
   const props = resolveRuntimePropsFromType(ctx, ctx.propsTypeDecl!)
   if (!props.length) {
     return
@@ -190,7 +260,7 @@ export function extractRuntimeProps(
 
   for (const prop of props) {
     propStrings.push(genRuntimePropFromType(ctx, prop, hasStaticDefaults))
-    // register bindings
+    // 注册绑定
     if ('bindingMetadata' in ctx && !(prop.key in ctx.bindingMetadata)) {
       ctx.bindingMetadata[prop.key] = BindingTypes.PROPS
     }
@@ -208,6 +278,9 @@ export function extractRuntimeProps(
   return propsDecls
 }
 
+/**
+ * 从 TS 类型解析运行时 prop 类型数据
+ */
 function resolveRuntimePropsFromType(
   ctx: TypeResolveContext,
   node: Node,
@@ -218,7 +291,7 @@ function resolveRuntimePropsFromType(
     const e = elements.props[key]
     let type = inferRuntimeType(ctx, e)
     let skipCheck = false
-    // skip check for result containing unknown types
+    // 包含 Unknown 类型 → 特殊处理
     if (type.includes(UNKNOWN_TYPE)) {
       if (type.includes('Boolean') || type.includes('Function')) {
         type = type.filter(t => t !== UNKNOWN_TYPE)
@@ -237,6 +310,9 @@ function resolveRuntimePropsFromType(
   return props
 }
 
+/**
+ * 从类型数据生成单个 prop 的运行时声明
+ */
 function genRuntimePropFromType(
   ctx: TypeResolveContext,
   { key, required, type, skipCheck }: PropTypeData,
@@ -257,9 +333,10 @@ function genRuntimePropFromType(
     ) as ObjectProperty | ObjectMethod
     if (prop) {
       if (prop.type === 'ObjectProperty') {
-        // prop has corresponding static default value
+        // 静态默认值
         defaultString = `default: ${ctx.getString(prop.value)}`
       } else {
+        // 方法形式的默认值
         let paramsString = ''
         if (prop.params.length) {
           const start = prop.params[0].start
@@ -275,6 +352,7 @@ function genRuntimePropFromType(
 
   const finalKey = getEscapedPropName(key)
   if (!ctx.options.isProd) {
+    // 开发环境：完整类型 + 校验元数据
     return `${finalKey}: { ${concatStrings([
       `type: ${toRuntimeTypeString(type)}`,
       `required: ${required}`,
@@ -288,15 +366,14 @@ function genRuntimePropFromType(
         ((!hasStaticDefaults || defaultString) && el === 'Function'),
     )
   ) {
-    // #4783 for boolean, should keep the type
-    // #7111 for function, if default value exists or it's not static, should keep it
-    // in production
+    // #4783 Boolean：必须保留 type
+    // #7111 Function + 默认值：需保留 type
     return `${finalKey}: { ${concatStrings([
       `type: ${toRuntimeTypeString(type)}`,
       defaultString,
     ])} }`
   } else {
-    // #8989 for custom element, should keep the type
+    // #8989 自定义元素：始终保留 type
     if (ctx.isCE) {
       if (defaultString) {
         return `${finalKey}: ${`{ ${defaultString}, type: ${toRuntimeTypeString(
@@ -307,15 +384,16 @@ function genRuntimePropFromType(
       }
     }
 
-    // production: checks are useless
+    // 生产环境：移除冗余校验
     return `${finalKey}: ${defaultString ? `{ ${defaultString} }` : `{}`}`
   }
 }
 
 /**
- * check defaults. If the default object is an object literal with only
- * static properties, we can directly generate more optimized default
- * declarations. Otherwise we will have to fallback to runtime merging.
+ * 判断 withDefaults 参数是否可静态分析
+ *
+ * 是 → 直接生成默认值声明（优化）
+ * 否 → 回退到运行时 mergeDefaults
  */
 function hasStaticWithDefaults(ctx: TypeResolveContext) {
   return !!(
@@ -329,6 +407,11 @@ function hasStaticWithDefaults(ctx: TypeResolveContext) {
   )
 }
 
+/**
+ * 生成解构默认值代码
+ *
+ * @returns valueString + needSkipFactory 标志
+ */
 function genDestructuredDefaultValue(
   ctx: TypeResolveContext,
   key: string,
@@ -345,6 +428,7 @@ function genDestructuredDefaultValue(
     const value = ctx.getString(defaultVal)
     const unwrapped = unwrapTSNode(defaultVal)
 
+    // 类型匹配检查（启发性）
     if (inferredType && inferredType.length && !inferredType.includes('null')) {
       const valueType = inferValueType(unwrapped)
       if (valueType && !inferredType.includes(valueType)) {
@@ -355,14 +439,13 @@ function genDestructuredDefaultValue(
       }
     }
 
-    // If the default value is a function or is an identifier referencing
-    // external value, skip factory wrap. This is needed when using
-    // destructure w/ runtime declaration since we cannot safely infer
-    // whether the expected runtime prop type is `Function`.
+    // 函数或外部引用 → 跳过 factory 包装
+    // 因为无法安全推断运行时 prop 类型是否包含 Function
     const needSkipFactory =
       !inferredType &&
       (isFunctionType(unwrapped) || unwrapped.type === 'Identifier')
 
+    // 非字面量 → 需要 factory 包装防止对象/数组引用共享
     const needFactoryWrap =
       !needSkipFactory &&
       !isLiteralNode(unwrapped) &&
@@ -375,9 +458,10 @@ function genDestructuredDefaultValue(
   }
 }
 
-// non-comprehensive, best-effort type inference for a runtime value
-// this is used to catch default value / type declaration mismatches
-// when using props destructure.
+/**
+ * 启发性类型推断（非完备）
+ * 用于检测默认值与声明类型的不匹配
+ */
 function inferValueType(node: Node): string | undefined {
   switch (node.type) {
     case 'StringLiteral':
