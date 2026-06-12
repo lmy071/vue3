@@ -1,3 +1,43 @@
+/**
+ * preprocessors.ts —— CSS 预处理器适配层
+ *
+ * ## 功能概述
+ * 提供 SFC 样式编译时的 CSS 预处理器集成（Sass/SCSS/Less/Stylus）。
+ *
+ * ## StylePreprocessor 类型
+ *
+ * ```ts
+ * (source, map, options, customRequire) => {
+ *   code: string    // 编译后的 CSS
+ *   map?: object    // source map (合并后)
+ *   errors: Error[] // 编译错误
+ *   dependencies: string[] // 依赖文件路径
+ * }
+ * ```
+ *
+ * ## 支持的预处理器
+ *
+ * | lang | 处理器 | 库 |
+ * |------|--------|-----|
+ * | scss | scss | sass |
+ * | sass | sass（缩进语法） | sass |
+ * | less | less | less |
+ * | styl/stylus | styl | stylus |
+ *
+ * ## 关键实现细节
+ *
+ * ### Sass 双 API 兼容
+ * - 优先使用新 API `compileString`（sass >= 1.45.0）
+ * - 回退到旧 API `renderSync`（sass < 1.45.0 或 node-sass）
+ *
+ * ### additionalData 支持
+ * 字符串：前置拼接；函数：调用返回完整内容。
+ *
+ * ### Source Map 合并
+ * 使用 `merge-source-map` 合并预处理器生成的 source map，
+ * 保持完整的源映射链。
+ */
+
 import merge from 'merge-source-map'
 import type { RawSourceMap } from '@vue/compiler-core'
 import type { SFCStyleCompileOptions } from '../compileStyle'
@@ -32,6 +72,7 @@ const scss: StylePreprocessor = (source, map, options, load = require) => {
   let sourceMap: any
 
   try {
+    // 新 API (sass >= 1.45.0)
     if (compileString) {
       const { pathToFileURL, fileURLToPath }: typeof import('url') = load('url')
 
@@ -44,6 +85,7 @@ const scss: StylePreprocessor = (source, map, options, load = require) => {
       dependencies = result.loadedUrls.map(url => fileURLToPath(url))
       sourceMap = map ? result.sourceMap! : undefined
     } else {
+      // 旧 API (sass < 1.45.0 或 node-sass)
       const result = renderSync({
         ...options,
         data,
@@ -70,6 +112,7 @@ const scss: StylePreprocessor = (source, map, options, load = require) => {
   }
 }
 
+// sass（缩进语法）→ 复用 scss 处理器，设置 indentedSyntax: true
 const sass: StylePreprocessor = (source, map, options, load) =>
   scss(
     source,
@@ -87,6 +130,7 @@ const less: StylePreprocessor = (source, map, options, load = require) => {
 
   let result: any
   let error: Error | null = null
+  // Less render 使用回调模式（syncImport 确保同步）
   nodeLess.render(
     getSource(source, options.filename, options.additionalData),
     { ...options, syncImport: true },
@@ -114,7 +158,7 @@ const less: StylePreprocessor = (source, map, options, load = require) => {
   }
 }
 
-// .styl
+// .styl / .stylus
 const styl: StylePreprocessor = (source, map, options, load = require) => {
   const nodeStylus = load('stylus')
   try {
@@ -138,6 +182,11 @@ const styl: StylePreprocessor = (source, map, options, load = require) => {
   }
 }
 
+/**
+ * 拼接 additionalData 与源码
+ * - 字符串 → 前置拼接
+ * - 函数 → 调用函数返回完整内容
+ */
 function getSource(
   source: string,
   filename: string,
@@ -152,6 +201,7 @@ function getSource(
 
 export type PreprocessLang = 'less' | 'sass' | 'scss' | 'styl' | 'stylus'
 
+/** 预处理器查找表 */
 export const processors: Record<PreprocessLang, StylePreprocessor> = {
   less,
   sass,
