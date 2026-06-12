@@ -1,3 +1,30 @@
+/**
+ * compileStyle.ts —— 样式编译核心
+ *
+ * ## 功能概述
+ * 编译 SFC 中的 `<style>` 块，整合预处理、PostCSS 插件链、
+ * CSS Modules 和 CSS Variables。
+ *
+ * ## 编译流程（doCompileStyle）
+ *
+ * ```
+ * 源码 → 预处理器 → CSS Variables 插件 → Trim → Scoped →
+ *   [CSS Modules] → PostCSS 处理 → 输出
+ * ```
+ *
+ * 1. **预处理**：Sass/SCSS/Less/Stylus → 标准 CSS
+ * 2. **CSS Variables (cssVarsPlugin)**：v-bind() → var(--hash)
+ * 3. **Trim**：规范化空白字符
+ * 4. **Scoped (pluginScoped)**：添加 scoped 属性选择器
+ * 5. **Modules (postcss-modules)**：CSS Modules 类名映射（仅异步模式）
+ * 6. **PostCSS 用户插件**：用户自定义插件链
+ *
+ * ## API
+ *
+ * - **compileStyle**（同步）：返回 SFCStyleCompileResults
+ * - **compileStyleAsync**（异步）：返回 Promise，支持 CSS Modules
+ */
+
 import postcss, {
   type LazyResult,
   type Message,
@@ -30,15 +57,13 @@ export interface SFCStyleCompileOptions {
   preprocessCustomRequire?: (id: string) => any
   postcssOptions?: any
   postcssPlugins?: any[]
-  /**
-   * @deprecated use `inMap` instead.
-   */
+  /** @deprecated 使用 `inMap` 替代 */
   map?: RawSourceMap
 }
 
 /**
- * Aligns with postcss-modules
- * https://github.com/css-modules/postcss-modules
+ * CSS Modules 选项
+ * 对齐 postcss-modules 的接口
  */
 export interface CSSModulesOptions {
   scopeBehaviour?: 'global' | 'local'
@@ -53,8 +78,7 @@ export interface CSSModulesOptions {
 
 export interface SFCAsyncStyleCompileOptions extends SFCStyleCompileOptions {
   isAsync?: boolean
-  // css modules support, note this requires async so that we can get the
-  // resulting json
+  // CSS Modules 仅支持异步（需获取生成 JSON）
   modules?: boolean
   modulesOptions?: CSSModulesOptions
 }
@@ -111,6 +135,7 @@ export function doCompileStyle(
   const shortId = id.replace(/^data-v-/, '')
   const longId = `data-v-${shortId}`
 
+  // PostCSS 插件链（cssVars → trim → scoped → modules → 用户自定义）
   const plugins = (postcssPlugins || []).slice()
   plugins.unshift(cssVarsPlugin({ id: shortId, isProd }))
   if (trim) {
@@ -157,11 +182,11 @@ export function doCompileStyle(
   let result: LazyResult | undefined
   let code: string | undefined
   let outMap: SourceMap | undefined
-  // stylus output include plain css. so need remove the repeat item
+  // Stylus 输出可能包含原始 CSS，需去重
   const dependencies = new Set(
     preProcessedSource ? preProcessedSource.dependencies : [],
   )
-  // sass has filename self when provided filename option
+  // Sass 会在 dependencies 中包含自身文件名
   dependencies.delete(filename)
 
   const errors: Error[] = []
@@ -172,7 +197,6 @@ export function doCompileStyle(
   const recordPlainCssDependencies = (messages: Message[]) => {
     messages.forEach(msg => {
       if (msg.type === 'dependency') {
-        // postcss output path is absolute position path
         dependencies.add(msg.file)
       }
     })
@@ -182,7 +206,7 @@ export function doCompileStyle(
   try {
     result = postcss(plugins).process(source, postCSSOptions)
 
-    // In async mode, return a promise.
+    // 异步模式 → 返回 Promise
     if (options.isAsync) {
       return result
         .then(result => ({
@@ -203,7 +227,7 @@ export function doCompileStyle(
     }
 
     recordPlainCssDependencies(result.messages)
-    // force synchronous transform (we know we only have sync plugins)
+    // 同步模式（已知只有同步插件）
     code = result.css
     outMap = result.map
   } catch (e: any) {
