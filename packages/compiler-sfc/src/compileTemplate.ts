@@ -1,3 +1,41 @@
+/**
+ * compileTemplate.ts —— 模板编译核心
+ *
+ * ## 功能概述
+ * 编译 SFC 的 `<template>` 块为 render 函数。
+ * 整合模板预处理器、编译器选项、资源 URL 转换和 source map。
+ *
+ * ## 编译流程
+ *
+ * ```
+ * 源码 → 预处理器 → [AST 重用] → compiler.compile() → source map 合并 → 输出
+ * ```
+ *
+ * ### 1. 预处理器
+ * 通过 `@vue/consolidate` 支持 Pug/Jade 等模板引擎。
+ * 预处理后 AST 失效，需重新解析。
+ *
+ * ### 2. AST 重用
+ * 如果 descriptor 中已有未变换的 AST，可跳过解析直接编译。
+ * 但自定义编译器时 AST 不兼容，需重新解析。
+ *
+ * ### 3. 编译器选择
+ * - 默认：SSR → compiler-ssr，客户端 → compiler-dom
+ * - 可选：自定义 TemplateCompiler
+ *
+ * ### 4. 资源 URL 转换
+ * - `transformAssetUrl`：img/video/source 等标签的 src 属性
+ * - `transformSrcset`：srcset 属性
+ *
+ * ### 5. Source Map 合并
+ * 当存在原始 source map（来自 parse.ts），
+ * 使用 source-map-js 将编译结果的映射回溯到完整 SFC 行号。
+ *
+ * ### 6. 错误修补（patchErrors）
+ * 仅当原始 source 是完整 SFC 的子字符串时，
+ * 将编译错误位置回溯到原始 SFC 位置。
+ */
+
 import {
   type CodegenResult,
   type CompilerError,
@@ -60,14 +98,13 @@ export interface SFCTemplateCompileOptions {
   preprocessLang?: string
   preprocessOptions?: any
   /**
-   * In some cases, compiler-sfc may not be inside the project root (e.g. when
-   * linked or globally installed). In such cases a custom `require` can be
-   * passed to correctly resolve the preprocessors.
+   * 全局安装或链接场景下可能不在项目根目录，
+   * 需传入自定义 require 解析预处理器
    */
   preprocessCustomRequire?: (id: string) => any
   /**
-   * Configure what tags/attributes to transform into asset url imports,
-   * or disable the transform altogether with `false`.
+   * 配置资源 URL 转换（标签+属性），
+   * 传 false 可完全关闭转换
    */
   transformAssetUrls?: AssetURLOptions | AssetURLTagConfig | boolean
 }
@@ -80,14 +117,16 @@ interface PreProcessor {
   ): void
 }
 
+/**
+ * 模板预处理（Pug 等）
+ *
+ * Consolidate 暴露回调 API，但对大多数模板引擎回调是同步调用的。
+ * 这里强制同步模式以支持 Jest transforms（需通过 Node require hook 同步执行）。
+ */
 function preprocess(
   { source, filename, preprocessOptions }: SFCTemplateCompileOptions,
   preprocessor: PreProcessor,
 ): string {
-  // Consolidate exposes a callback based API, but the callback is in fact
-  // called synchronously for most templating engines. In our case, we have to
-  // expose a synchronous API so that it is usable in Jest transforms (which
-  // have to be sync because they are applied via Node.js require hooks)
   let res: string = ''
   let err: Error | null = null
 
@@ -133,7 +172,7 @@ export function compileTemplate(
       return doCompileTemplate({
         ...options,
         source: preprocess(options, preprocessor),
-        ast: undefined, // invalidate AST if template goes through preprocessor
+        ast: undefined, // 预处理后 AST 失效
       })
     } catch (e: any) {
       return {
@@ -177,6 +216,7 @@ function doCompileTemplate({
   const errors: CompilerError[] = []
   const warnings: CompilerError[] = []
 
+  // 资源 URL 转换
   let nodeTransforms: NodeTransform[] = []
   if (isObject(transformAssetUrls)) {
     const assetOptions = normalizeOptions(transformAssetUrls)
@@ -202,19 +242,17 @@ function doCompileTemplate({
   const shortId = id.replace(/^data-v-/, '')
   const longId = `data-v-${shortId}`
 
+  // 默认编译器
   const defaultCompiler = ssr ? (CompilerSSR as TemplateCompiler) : CompilerDOM
   compiler = compiler || defaultCompiler
 
   if (compiler !== defaultCompiler) {
-    // user using custom compiler, this means we cannot reuse the AST from
-    // the descriptor as they might be different.
+    // 自定义编译器 → AST 不兼容，需重新解析
     inAST = undefined
   }
 
+  // AST 已被变换 → 不能直接复用，需基于原始 source 重新解析
   if (inAST?.transformed) {
-    // If input AST has already been transformed, then it cannot be reused.
-    // We need to parse a fresh one. Can't just use `source` here since we need
-    // the AST location info to be relative to the entire SFC.
     const newAST = (ssr ? CompilerDOM : compiler).parse(inAST.source, {
       prefixIdentifiers: true,
       ...compilerOptions,
@@ -227,6 +265,7 @@ function doCompileTemplate({
     inAST = createRoot(template.children, inAST.source)
   }
 
+  // 编译
   let { code, ast, preamble, map } = compiler.compile(inAST || source, {
     mode: 'module',
     prefixIdentifiers: true,
@@ -247,9 +286,7 @@ function doCompileTemplate({
     onWarn: w => warnings.push(w),
   })
 
-  // inMap should be the map produced by ./parse.ts which is a simple line-only
-  // mapping. If it is present, we need to adjust the final map and errors to
-  // reflect the original line numbers.
+  // Source map 合并：将编译结果的映射回溯到完整 SFC 行号
   if (inMap && !inAST) {
     if (map) {
       map = mapLines(inMap, map)
@@ -274,6 +311,12 @@ function doCompileTemplate({
   return { code, ast, preamble, source, errors, tips, map }
 }
 
+/**
+ * Source map 合并
+ *
+ * 将编译结果的 source map 与原始 SFC 的 source map 合并，
+ * 使得最终 source map 直接指向完整 .vue 文件的行/列。
+ */
 function mapLines(oldMap: RawSourceMap, newMap: RawSourceMap): RawSourceMap {
   if (!oldMap) return newMap
   if (!newMap) return oldMap
@@ -302,9 +345,7 @@ function mapLines(oldMap: RawSourceMap, newMap: RawSourceMap): RawSourceMap {
         column: m.generatedColumn,
       },
       original: {
-        line: origPosInOldMap.line, // map line
-        // use current column, since the oldMap produced by @vue/compiler-sfc
-        // does not
+        line: origPosInOldMap.line,
         column: m.originalColumn!,
       },
       source: origPosInOldMap.source,
@@ -312,7 +353,6 @@ function mapLines(oldMap: RawSourceMap, newMap: RawSourceMap): RawSourceMap {
     })
   })
 
-  // source-map's type definition is incomplete
   const generator = mergedMapGenerator as any
   ;(oldMapConsumer as any).sources.forEach((sourceFile: string) => {
     generator._sources.add(sourceFile)
@@ -327,6 +367,12 @@ function mapLines(oldMap: RawSourceMap, newMap: RawSourceMap): RawSourceMap {
   return generator.toJSON()
 }
 
+/**
+ * 错误位置回溯
+ *
+ * 当原始 source 是完整 SFC 的子字符串时，
+ * 将编译错误位置调整为原始 SFC 中的位置。
+ */
 function patchErrors(
   errors: CompilerError[],
   source: string,
