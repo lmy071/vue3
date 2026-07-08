@@ -1,3 +1,67 @@
+/**
+ * components/Transition.ts —— <Transition> 组件
+ *
+ * DOM 平台的 Transition 组件，基于 runtime-core 的 BaseTransition，
+ * 添加 CSS transition/animation 的具体实现。
+ *
+ * ## 架构
+ *
+ * Transition 是一个 FunctionalComponent，通过 HOC 模式包装：
+ * ```
+ * Transition(props, { slots }) → h(BaseTransition, resolveTransitionProps(props), slots)
+ * ```
+ *
+ * ## CSS 类名约定
+ *
+ * | 阶段 | -enter | -leave |
+ * |------|--------|--------|
+ * | 起始 | v-enter-from | v-leave-from |
+ * | 激活 | v-enter-active | v-leave-active |
+ * | 结束 | v-enter-to | v-leave-to |
+ *
+ * 可通过 name prop 替换前缀，或通过 enterFromClass 等 prop 自定义。
+ *
+ * ## Transition 生命周期钩子链
+ *
+ * ```
+ * onBeforeEnter(el)
+ *   → addClass(enterFromClass, enterActiveClass)
+ *   → nextFrame:
+ *       removeClass(enterFromClass)
+ *       addClass(enterToClass)
+ *       → whenTransitionEnds (CSS transitionend/animationend)
+ *         或 timeout 回退
+ *         → removeClass(enterToClass, enterActiveClass)
+ *         → done()
+ *
+ * onBeforeLeave(el)
+ *   → addClass(leaveActiveClass), forceReflow
+ *   → addClass(leaveFromClass)
+ *   → nextFrame:
+ *       removeClass(leaveFromClass)
+ *       addClass(leaveToClass)
+ *       → whenTransitionEnds → done()
+ * ```
+ *
+ * ## whenTransitionEnds —— 过渡结束检测
+ *
+ * 1. 通过 getComputedStyle 获取 transition/animation 的 duration + delay
+ * 2. 计算 timeout = max(durations + delays)
+ * 3. 监听 transitionend/animationend 事件（匹配 propCount）
+ * 4. 兜底 setTimeout(maxTimeout + 1)
+ *
+ * ## 类名安全
+ *
+ * vtcKey（Vue Transition Classes）—— 在元素上存储临时添加的过渡类名，
+ * 避免 patchClass 覆盖过渡期间的动态类。
+ *
+ * ## Vue 2.x 兼容
+ *
+ * - TRANSITION_CLASSES：v-enter（无 -from 后缀）→ 同时添加旧类名
+ * - __isBuiltIn 标记
+ */
+
+import {
 import {
   BaseTransition,
   type BaseTransitionProps,
