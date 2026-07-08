@@ -1,3 +1,24 @@
+/**
+ * modules/props.ts —— DOM property patch
+ *
+ * patchDOMProp 处理通过 el[key] = value 方式设置的 DOM 属性。
+ *
+ * ## 特殊处理
+ *
+ * | 情况 | 行为 |
+ * |------|------|
+ * | innerHTML/textContent | 通过 unsafeToTrustedHTML 安全赋值 |
+ * | <input value> | 比较 old/new，同时存储 el._value 用于 checkbox 非字符串值 |
+ * | <option value> | 比较 getAttribute('value')，因为 value 会回退到 textContent |
+ * | null/undefined | 布尔型 → false，字符串型 → ''（+ removeAttribute），数值型 → 0 + removeAttribute |
+ * | try/catch | 某些属性（如 readonly）在特定元素上赋值会抛错，静默处理 |
+ *
+ * ## Vue 2.x 兼容
+ *
+ * ATTR_FALSE_VALUE：v-bind:attr="false" 时不移除而是设为字符串 'false'
+ */
+
+import { DeprecationTypes, compatUtils, warn } from '@vue/runtime-core'
 import { DeprecationTypes, compatUtils, warn } from '@vue/runtime-core'
 import { includeBooleanAttr } from '@vue/shared'
 import { unsafeToTrustedHTML } from '../nodeOps'
