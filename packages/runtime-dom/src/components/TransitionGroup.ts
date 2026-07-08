@@ -1,3 +1,55 @@
+/**
+ * components/TransitionGroup.ts —— <TransitionGroup> 组件
+ *
+ * 列表过渡组件，为列表元素的位置移动添加动画。
+ * 不支持 mode prop（TransitionGroup 中 mode 被删除）。
+ *
+ * ## 工作原理
+ *
+ * ### 三阶段动画
+ *
+ * 1. **Record**（before update）：记录每个子节点的旧位置
+ *    `positionMap.set(child, getPosition(el))`
+ *
+ * 2. **Apply**（onUpdated）：记录新位置 → 计算偏移量 → 应用 FLIP 变换
+ *    ```
+ *    dx = oldPos.left - newPos.left
+ *    dy = oldPos.top - newPos.top
+ *    el.style.transform = translate(dx, dy)
+ *    el.style.transitionDuration = '0s'
+ *    ```
+ *
+ * 3. **Animate**（重排后）：
+ *    - addClass(moveClass) → 清除 transform → CSS transition 动画
+ *    - transitionend → removeClass(moveClass)
+ *
+ * ## FLIP 动画（First, Last, Invert, Play）
+ *
+ * FLIP 将元素从旧位置"瞬间"移到新位置，再通过 CSS transition 平滑过渡。
+ * 此处的"瞬间移动"通过 transform 实现（无 layout 重计算），
+ * transitionDuration='0s' 确保变换不产生动画。
+ *
+ * ## scale 校正
+ *
+ * 如果元素在移动过程中发生了尺寸变化（如宽度从 100px 变为 200px），
+ * 需要缩放 transform 偏移量以补偿，避免视觉抖动。
+ * scaleX = rect.width / el.offsetWidth
+ *
+ * ## hasCSSTransform 检测
+ *
+ * 在决定是否执行 FLIP 前，克隆目标元素检测 moveClass 是否触发了 CSS transition。
+ * 如果 moveClass 没有 transform transition，跳过动画（避免无关重排）。
+ *
+ * ## key 属性要求
+ *
+ * TransitionGroup 要求所有子元素都有唯一 key，用于追踪元素移动。
+ *
+ * ## Vue 2.x 兼容
+ *
+ * - TRANSITION_GROUP_ROOT：没有 tag prop 时默认使用 <span> 而非 Fragment
+ */
+
+import {
 import {
   type ElementWithTransition,
   type TransitionProps,
