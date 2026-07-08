@@ -1,3 +1,31 @@
+/**
+ * jsx.ts —— JSX/TSX 类型定义
+ *
+ * 提供 Vue 3 JSX/TSX 的类型支持，源自 React 定义的 MIT 许可类型。
+ * 编译时自动拼接到 .d.ts 末尾。
+ *
+ * ## 核心类型
+ *
+ * | 类型 | 说明 |
+ * |------|------|
+ * | StyleValue | 样式值联合类型（string/object/array） |
+ * | ClassValue | class 绑定联合类型（string/object/array） |
+ * | CSSProperties | 基于 csstype 的样式属性 + CSS 变量索引签名 |
+ * | AriaAttributes | 完整 WAI-ARIA 1.1 属性 |
+ * | HTMLAttributes | 全局 HTML 属性 + 事件处理器 |
+ * | SVGAttributes | SVG 元素属性 |
+ * | IntrinsicElementAttributes | 所有原生 HTML/SVG 元素 → 属性映射 |
+ * | NativeElements | 原生元素 + ReservedProps（key, ref） |
+ * | {Element}HTMLAttributes | 各元素特有属性接口 |
+ * | Events | 所有 DOM 事件类型映射 |
+ *
+ * ## CSSProperties
+ *
+ * 扩展 csstype，支持 CSS 自定义属性（--*）和 string/number 值。
+ */
+
+// Note: this file is auto concatenated to the end of the bundled d.ts during
+// build.
 // Note: this file is auto concatenated to the end of the bundled d.ts during
 // build.
 
