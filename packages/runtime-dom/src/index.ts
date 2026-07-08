@@ -1,3 +1,56 @@
+/**
+ * runtime-dom/index.ts —— DOM 平台入口
+ *
+ * runtime-dom 是 Vue 3 的浏览器平台适配层，连接 runtime-core 与 DOM API。
+ *
+ * ## 对外暴露的核心 API
+ *
+ * ```
+ * createApp()    —— 创建并挂载 Vue 应用（re-export 自 runtime-core）
+ * render()       —— 渲染 vnode 到 DOM 容器
+ * hydrate()      —— SSR 客户端激活
+ * createSSRApp() —— 创建 SSR 应用（激活模式）
+ * ```
+ *
+ * ## 渲染器架构
+ *
+ * runtime-dom 组合两个平台适配对象 → 传递给 runtime-core 的 createRenderer：
+ * - nodeOps：DOM 节点操作（createElement / insert / remove / ...）
+ * - patchProp：DOM 属性/样式/事件 patch
+ *
+ * renderer 采用懒创建（ensureRenderer），首次调用 createApp/render 时才初始化，
+ * 这使得只使用 reactivity 的场景可以 tree-shake 掉整个渲染器。
+ *
+ * ## mount 流程
+ *
+ * createApp(...).mount(container) 的增强逻辑：
+ * 1. normalizeContainer：支持选择器字符串
+ * 2. 检查 component 是否有 render/template，没有则取 container.innerHTML
+ * 3. 清空容器内容，挂载后移除 v-cloak，添加 data-v-app
+ * 4. 开发环境注入 isNativeTag / compilerOptions 检查
+ *
+ * ## 模块声明增强
+ *
+ * - @vue/reactivity：声明 RefUnwrapBailTypes 防止对 DOM Node/Window 自动解包
+ * - @vue/runtime-core：声明 AllowedAttrs（class/style）、GlobalComponents（Transition）、GlobalDirectives
+ *
+ * ## 子模块重导出
+ *
+ * | 模块 | 导出内容 |
+ * |------|---------|
+ * | apiCustomElement | defineCustomElement, defineSSRCustomElement, VueElement, useShadowRoot, useHost |
+ * | helpers/useCssModule | useCssModule |
+ * | helpers/useCssVars | useCssVars |
+ * | components/Transition | Transition, TransitionProps |
+ * | components/TransitionGroup | TransitionGroup, TransitionGroupProps |
+ * | directives/vModel | vModelText, vModelCheckbox, vModelRadio, vModelSelect, vModelDynamic |
+ * | directives/vOn | withModifiers, withKeys |
+ * | directives/vShow | vShow |
+ * | jsx | StyleValue, ClassValue, NativeElements |
+ * | @vue/runtime-core | * (h, Component, reactivity API, nextTick, flags & types) |
+ */
+
+import {
 import {
   type App,
   type CreateAppFunction,
