@@ -1,3 +1,22 @@
+/**
+ * helpers/useCssModule.ts —— useCssModule 组合式函数
+ *
+ * 在 setup() 中获取 CSS Modules 注入的类名映射。
+ *
+ * ## 用法
+ *
+ * ```ts
+ * const $style = useCssModule()     // 默认 $style
+ * const $foo = useCssModule('foo')  // 具名模块
+ * ```
+ *
+ * ## 实现
+ *
+ * 通过 getCurrentInstance() 获取组件实例，从 instance.type.__cssModules 读取模块映射。
+ * 全局构建中直接返回 EMPTY_OBJ。
+ */
+
+import { getCurrentInstance, warn } from '@vue/runtime-core'
 import { getCurrentInstance, warn } from '@vue/runtime-core'
 import { EMPTY_OBJ } from '@vue/shared'
 
