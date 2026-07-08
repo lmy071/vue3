@@ -1,3 +1,75 @@
+/**
+ * apiCustomElement.ts —— Vue 自定义元素（Web Components）API
+ *
+ * 提供 defineCustomElement 将 Vue 组件编译为原生 Custom Element。
+ *
+ * ## 核心 API
+ *
+ * | API | 说明 |
+ * |-----|------|
+ * | defineCustomElement | 将 Vue 组件包装为 CustomElement 构造函数 |
+ * | defineSSRCustomElement | 同上，但使用 SSR 激活模式（hydrate） |
+ * | useHost | 在 setup() 中获取宿主 Custom Element 实例 |
+ * | useShadowRoot | 在 setup() 中获取 ShadowRoot |
+ *
+ * ## VueElement 类架构
+ *
+ * ```
+ * HTMLElement
+ *   └── VueElement
+ *         ├── _instance: ComponentInternalInstance  (Vue 组件实例)
+ *         ├── _app: App                              (Vue 应用实例)
+ *         ├── _root: Element | ShadowRoot            (挂载根节点)
+ *         ├── _def: InnerComponentDef                (组件定义，可能是 async)
+ *         ├── _props: Record<string, any>            (当前 props)
+ *         ├── _numberProps: Record<string, true>     (Number 类型 prop 映射)
+ *         └── _styleAnchors: WeakMap                 (样式锚点管理)
+ * ```
+ *
+ * ## 生命周期
+ *
+ * ```
+ * constructor(props)  → 创建 shadowRoot / 确定挂载根
+ * connectedCallback() → _parseSlots → _resolveDef → _mount
+ *   _resolveDef        → 读取 attributes → MutationObserver → resolve(async)
+ *   _mount              → createApp(def) → 继承 context → 挂载到 root
+ * disconnectedCallback → nextTick 后 unmount
+ * ```
+ *
+ * ## Props 系统
+ *
+ * 1. _resolveProps：在原型上为每个声明的 prop 定义 getter/setter
+ * 2. _setProp：更新 props → 触发 _update() → render(vnode, root)
+ * 3. Attribute ↔ Property 反射：setAttribute/hyphenate + removeAttribute
+ * 4. Number 类型转换：toNumber 处理 HTML attribute 的字符串值
+ *
+ * ## 事件系统
+ *
+ * emit 被拦截，同时派发原始事件名和连字符形式：
+ * ```ts
+ * instance.emit('update:modelValue', val)
+ * // → dispatchEvent('update:modelValue') + dispatchEvent('update:model-value')
+ * ```
+ *
+ * ## 样式系统
+ *
+ * shadowRoot=true（默认）：style 标签注入到 shadowRoot
+ * shadowRoot=false：不支持样式注入（仅 slot 渲染模式）
+ *
+ * _applyStyles 支持：
+ * - 组件样式 + 子组件样式（通过 _injectChildStyle）
+ * - HMR 热更新（ceReload 重载样式）
+ * - 样式插入锚点管理（_styleAnchors）
+ *
+ * ## shadowRoot=false 模式
+ *
+ * 不使用 Shadow DOM，仅作为逻辑容器：
+ * - _parseSlots：移除子节点到 _slots
+ * - _renderSlots：将 slot 内容渲染到 <slot> 元素位置
+ * - 支持 :slotted 选择器（scopeId + '-s'）
+ */
+
+import {
 import {
   type App,
   type Component,
