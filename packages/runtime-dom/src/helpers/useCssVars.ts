@@ -1,3 +1,29 @@
+/**
+ * helpers/useCssVars.ts —— useCssVars 组合式函数
+ *
+ * SFC CSS 变量注入的运行时 helper。在 <style vars="{ color }"> 中使用。
+ *
+ * ## 工作流
+ *
+ * 1. 组件挂载后通过 getter 获取 CSS 变量值
+ * 2. setVarsOnNode：遍历 vnode 树，设置 CSS 自定义属性（--*）
+ * 3. MutationObserver：监听父节点 DOM 变化，刷新子组件变量
+ * 4. Teleport 支持：通过 data-v-owner 属性定位，ut（updateTeleports）批量更新
+ *
+ * ## VNode 遍历
+ *
+ * setVarsOnVNode 处理三种情况：
+ * - 组件 → 递归到 subtree
+ * - ELEMENT → setVarsOnNode
+ * - Fragment/Static → 遍历子节点
+ *
+ * ## 性能
+ *
+ * onBeforeUpdate 中通过 queuePostFlushCb 延迟 setVars，避免同步阻塞。
+ * watch + flush: 'post' 确保 DOM 更新后再写入 CSS 变量。
+ */
+
+import {
 import {
   Fragment,
   Static,
