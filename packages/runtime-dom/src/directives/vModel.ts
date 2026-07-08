@@ -1,3 +1,41 @@
+/**
+ * directives/vModel.ts —— v-model 指令运行时
+ *
+ * 为不同表单元素类型提供专门的 v-model 运行时处理。
+ *
+ * ## 子指令
+ *
+ * | 指令 | 目标元素 | 事件 | 特性 |
+ * |------|---------|------|------|
+ * | vModelText | input, textarea | input/change | trim/number/lazy 修饰符，IME 组合输入处理 |
+ * | vModelCheckbox | input[type=checkbox] | change | 数组/Set/布尔 三种绑定模式 |
+ * | vModelRadio | input[type=radio] | change | looseEqual 比较选中 |
+ * | vModelSelect | select | change | multiple 支持数组/Set，number 修饰符 |
+ * | vModelDynamic | 动态类型 | 自动分发 | 运行时按 tagName+type 分发到上述子指令 |
+ *
+ * ## 核心机制
+ *
+ * 1. assignKey（Symbol('_assign')）—— 在元素上存储更新函数
+ * 2. getModelAssigner —— 从 vnode.props['onUpdate:modelValue'] 获取更新函数
+ * 3. _assigning 标记 —— 防止 select 的 change 事件与 update 循环触发
+ *
+ * ## IME 处理（vModelText）
+ *
+ * compositionstart 设置 e.target.composing = true
+ * compositionend 清除标记并触发 input 事件（用于 Safari/UIWebView 兼容）
+ * lazy 修饰符不监听 composition 事件
+ *
+ * ## vModelDynamic
+ *
+ * 按 el.tagName + vnode.props.type 运行时解析对应的 vModel 子指令，
+ * 委托其 created/mounted/beforeUpdate/updated 钩子。
+ *
+ * ## SSR
+ *
+ * initVModelForSSR 为各子指令提供 getSSRProps，生成服务端渲染的属性和值。
+ */
+
+import {
 import {
   type DirectiveBinding,
   type DirectiveHook,
