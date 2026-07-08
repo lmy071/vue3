@@ -1,3 +1,41 @@
+/**
+ * modules/style.ts —— 内联样式 patch
+ *
+ * ## patchStyle 流程
+ *
+ * ```
+ * patchStyle(el, prev, next)
+ *   │
+ *   ├── next 为对象
+ *   │   ├── 遍历 prev，删除不存在于 next 的属性
+ *   │   └── 遍历 next，设置新值
+ *   │       ├── display → 标记 hasControlledDisplay
+ *   │       ├── textarea width/height 同值 → 跳过（避免覆盖浏览器 resize）
+ *   │       └── 其他 → setStyle(style, key, value)
+ *   │
+ *   ├── next 为字符串
+ *   │   ├── cssText 赋值（合并 CSS_VAR_TEXT）
+ *   │   └── displayRE 检测 display 是否在样式中
+ *   │
+ *   └── next 为 null
+ *       └── prev 存在 → removeAttribute('style')
+ * ```
+ *
+ * ## v-show 集成
+ *
+ * v-show 保存原始 display 值到 el._vod，隐藏时设置 display:none。
+ * patchStyle 检测 _vod 确保 v-show 优先级高于 v-bind:style。
+ *
+ * ## 自动前缀
+ *
+ * autoPrefix 为 CSS 属性添加 Webkit/Moz/ms 前缀，结果缓存在 prefixCache。
+ *
+ * ## CSS 变量（--custom-prop）
+ *
+ * CSS 自定义属性通过 style.setProperty 设置，支持 !important。
+ */
+
+import { capitalize, hyphenate, isArray, isString } from '@vue/shared'
 import { capitalize, hyphenate, isArray, isString } from '@vue/shared'
 import { camelize, warn } from '@vue/runtime-core'
 import {
