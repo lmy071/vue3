@@ -1,4 +1,14 @@
 /**
+ * directives/vOn.ts —— v-on 指令运行时辅助函数
+ *
+ * 为编译器生成的渲染函数提供两个核心工具：
+ * - withModifiers：事件修饰符（.stop/.prevent/.ctrl/.self/.exact 等）
+ * - withKeys：键盘按键修饰符（.enter/.esc/.arrow-up 等）
+ *
+ * 设计要点：修饰符守卫采用"否定式"判断，缓存策略避免重复创建包装函数。
+ */
+
+/**
  * @file vOn.ts
  * @description Vue 3 `v-on` 指令的运行时辅助函数。
  *
