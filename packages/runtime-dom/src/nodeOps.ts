@@ -1,3 +1,38 @@
+/**
+ * nodeOps.ts —— DOM 节点操作平台适配
+ *
+ * 实现 RendererOptions 中除 patchProp 之外的所有 DOM 操作回调。
+ * runtime-core 的渲染器通过此对象操作真实 DOM。
+ *
+ * ## 操作清单
+ *
+ * | 操作 | DOM API | 说明 |
+ * |------|---------|------|
+ * | insert | parent.insertBefore(child, anchor) | 在 anchor 前插入 |
+ * | remove | parent.removeChild(child) | 移除子节点 |
+ * | createElement | doc.createElement / createElementNS | 根据 namespace 创建 |
+ * | createText | doc.createTextNode | 文本节点 |
+ * | createComment | doc.createComment | 注释节点 |
+ * | setText | node.nodeValue = text | 文本内容 |
+ * | setElementText | el.textContent = text | 元素文本 |
+ * | parentNode | node.parentNode | 父节点 |
+ * | nextSibling | node.nextSibling | 下一个兄弟 |
+ * | querySelector | doc.querySelector | 选择器查询 |
+ * | setScopeId | el.setAttribute(id, '') | Scoped CSS 标记 |
+ * | insertStaticContent | innerHTML + cloneNode | 静态内容批量插入 |
+ *
+ * ## Trusted Types 支持
+ *
+ * 若浏览器支持 Trusted Types API，创建名为 'vue' 的安全策略，
+ * createHTML 直接透传。unsafeToTrustedHTML 用于 innerHTML 赋值时的类型安全。
+ *
+ * ## static 节点缓存
+ *
+ * insertStaticContent 优先使用缓存的静态节点（cloneNode），
+ * 缓存不可用时通过 template 元素的 innerHTML 批量创建。
+ */
+
+import { warn } from '@vue/runtime-core'
 import { warn } from '@vue/runtime-core'
 import type { RendererOptions } from '@vue/runtime-core'
 import type {
