@@ -1,3 +1,22 @@
+/**
+ * modules/attrs.ts —— HTML attribute patch
+ *
+ * ## setAttribute / removeAttribute 封装
+ *
+ * patchAttr 处理普通 HTML attribute 的设置与删除：
+ * - null/undefined → removeAttribute
+ * - SVG xlink: → setAttributeNS / removeAttributeNS
+ * - 特殊布尔属性（disabled/checked 等，无对应 DOM prop）→ setAttribute(key, '') 或 removeAttribute
+ * - false 值 → removeAttribute（非特殊布尔属性）
+ *
+ * ## Vue 2.x 兼容
+ *
+ * compatCoerceAttr 处理 Vue 2 的 SEO 属性强制：
+ * - contenteditable/draggable/spellcheck → 'true'/'false' 字符串
+ * - false 值移除 → ATTR_FALSE_VALUE 废弃警告
+ */
+
+import {
 import {
   NOOP,
   includeBooleanAttr,
