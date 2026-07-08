@@ -1,3 +1,34 @@
+/**
+ * patchProp.ts —— 属性/样式/事件 patch 分发器
+ *
+ * DOM 平台 patchProp 实现，根据 key 类型分发到不同的 patch 模块。
+ *
+ * ## 分发决策树
+ *
+ * ```
+ * patchProp(el, key, prev, next, ...)
+ *   │
+ *   ├── key === 'class'     → patchClass()     (modules/class.ts)
+ *   ├── key === 'style'     → patchStyle()     (modules/style.ts)
+ *   ├── isOn(key)           → patchEvent()     (modules/events.ts)
+ *   │                          跳过 v-model listeners
+ *   ├── . 前缀              → patchDOMProp()   (强制 DOM prop)
+ *   ├── ^ 前缀              → patchAttr()      (强制 HTML attribute)
+ *   ├── shouldSetAsProp()   → patchDOMProp()   (modules/props.ts)
+ *   │   ├── value/checked/selected + 非自定义元素 → 同时设置 attribute
+ *   ├── VueElement + prop   → patchDOMProp()   (camelize)
+ *   └── 其他                → patchAttr()      (modules/attrs.ts)
+ * ```
+ *
+ * ## shouldSetAsProp 规则
+ *
+ * position: svg 元素除 innerHTML/textContent/原生 onclick 外都用 attribute
+ * 强制 attribute：spellcheck/draggable/translate/autocorrect/form/iframe sandbox
+ * 强制 attribute：<input list>、<textarea type>、<img/video/canvas/source width/height>
+ * 默认：key in el（DOM 属性存在则用 prop）
+ */
+
+import { patchClass } from './modules/class'
 import { patchClass } from './modules/class'
 import { patchStyle } from './modules/style'
 import { patchAttr } from './modules/attrs'
