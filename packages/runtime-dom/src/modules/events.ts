@@ -1,3 +1,39 @@
+/**
+ * modules/events.ts —— 事件监听器 patch
+ *
+ * ## vei（Vue Event Invokers）机制
+ *
+ * Vue 3 使用 _vei Symbol 属性在 DOM 元素上存储事件调用链，
+ * 避免高频 addEventListener/removeEventListener 的性能开销。
+ *
+ * ```
+ * patchEvent(el, 'onClick', prev, next)
+ *   │
+ *   ├── next && existingInvoker → 原地更新 invoker.value（patch）
+ *   ├── next && !existingInvoker → createInvoker + addEventListener（add）
+ *   └── !next && existingInvoker → removeEventListener + 清理（remove）
+ * ```
+ *
+ * ## invoker 设计
+ *
+ * - invoker 是包裹用户回调的 EventListener 对象
+ * - 事件触发时记录 _vts（Vue Time Stamp），后续同一事件帧内重复触发被忽略
+ * - 支持数组形式的多回调（如 @click="[fn1, fn2]"）
+ * - stopImmediatePropagation 可中断数组回调的执行
+ *
+ * ## 修饰符解析
+ *
+ * parseName 从事件名提取修饰符（Once/Passive/Capture）：
+ * - onClickOnce → ['click', { once: true }]
+ * - onClickCapture → ['click', { capture: true }]
+ *
+ * ## 性能优化
+ *
+ * - getNow() 缓存同 tick 内的时间戳，避免高频 Date.now()
+ * - invoker.value 原地更新，避免 DOM 解绑/重绑
+ */
+
+import { NOOP, hyphenate, isArray, isFunction } from '@vue/shared'
 import { NOOP, hyphenate, isArray, isFunction } from '@vue/shared'
 import {
   type ComponentInternalInstance,
