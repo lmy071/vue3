@@ -17,7 +17,6 @@
  */
 
 import {
-import {
   NOOP,
   includeBooleanAttr,
   isSpecialBooleanAttr,

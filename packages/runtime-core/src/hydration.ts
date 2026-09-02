@@ -374,14 +374,30 @@ export function createHydrationFunctions(
     optimized: boolean,
   ) => {
     optimized = optimized || !!vnode.dynamicChildren
-    const { type, props, patchFlag, shapeFlag, dirs, transition } = vnode
+    const {
+      type,
+      dynamicProps,
+      props,
+      patchFlag,
+      shapeFlag,
+      dirs,
+      transition,
+    } = vnode
     // #4006 for form elements with non-string v-model value bindings
     // e.g. <option :value="obj">, <input type="checkbox" :true-value="1">
     // #7476 <input indeterminate>
     const forcePatch = type === 'input' || type === 'option'
+    // #9033 force hydrate dynamic props.
+    // Keep separate from forcePatch, which also patches value-like keys.
+    const hasDynamicProps = !!dynamicProps
     // skip props & children if this is hoisted static nodes
     // #5405 in dev, always hydrate children for HMR
-    if (__DEV__ || forcePatch || patchFlag !== PatchFlags.CACHED) {
+    if (
+      __DEV__ ||
+      forcePatch ||
+      hasDynamicProps ||
+      patchFlag !== PatchFlags.CACHED
+    ) {
       if (dirs) {
         invokeDirectiveHook(vnode, null, parentComponent, 'created')
       }
@@ -479,6 +495,7 @@ export function createHydrationFunctions(
           __DEV__ ||
           __FEATURE_PROD_HYDRATION_MISMATCH_DETAILS__ ||
           forcePatch ||
+          hasDynamicProps ||
           !optimized ||
           patchFlag & (PatchFlags.FULL_PROPS | PatchFlags.NEED_HYDRATION)
         ) {
@@ -500,7 +517,8 @@ export function createHydrationFunctions(
               (isOn(key) && !isReservedProp(key)) ||
               // force hydrate v-bind with .prop modifiers
               key[0] === '.' ||
-              (isCustomElement && !isReservedProp(key))
+              (isCustomElement && !isReservedProp(key)) ||
+              (dynamicProps && dynamicProps.includes(key))
             ) {
               patchProp(el, key, null, props[key], undefined, parentComponent)
             }
@@ -673,7 +691,7 @@ export function createHydrationFunctions(
     slotScopeIds: string[] | null,
     isFragment: boolean,
   ): Node | null => {
-    if (!isMismatchAllowed(node.parentElement!, MismatchTypes.CHILDREN)) {
+    if (!isNodeMismatchAllowed(node, vnode)) {
       ;(__DEV__ || __FEATURE_PROD_HYDRATION_MISMATCH_DETAILS__) &&
         warn(
           `Hydration node mismatch:\n- rendered on server:`,
@@ -980,7 +998,16 @@ function isMismatchAllowed(
       el = el.parentElement
     }
   }
-  const allowedAttr = el && el.getAttribute(allowMismatchAttr)
+  return isMismatchAllowedByAttr(
+    el && el.getAttribute(allowMismatchAttr),
+    allowedType,
+  )
+}
+
+function isMismatchAllowedByAttr(
+  allowedAttr: string | null,
+  allowedType: MismatchTypes,
+): boolean {
   if (allowedAttr == null) {
     return false
   } else if (allowedAttr === '') {
@@ -993,4 +1020,30 @@ function isMismatchAllowed(
     }
     return list.includes(MismatchTypeString[allowedType])
   }
+}
+
+function isNodeMismatchAllowed(node: Node, vnode: VNode): boolean {
+  return (
+    isMismatchAllowed(node.parentElement, MismatchTypes.CHILDREN) ||
+    isMismatchAllowedByNode(node) ||
+    isMismatchAllowedByVNode(vnode)
+  )
+}
+
+function isMismatchAllowedByNode(node: Node): boolean {
+  return (
+    node.nodeType === DOMNodeTypes.ELEMENT &&
+    isMismatchAllowedByAttr(
+      (node as Element).getAttribute(allowMismatchAttr),
+      MismatchTypes.CHILDREN,
+    )
+  )
+}
+
+function isMismatchAllowedByVNode({ props }: VNode): boolean {
+  const allowedAttr = props && props[allowMismatchAttr]
+  return (
+    typeof allowedAttr === 'string' &&
+    isMismatchAllowedByAttr(allowedAttr, MismatchTypes.CHILDREN)
+  )
 }

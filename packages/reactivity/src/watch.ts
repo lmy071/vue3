@@ -363,8 +363,9 @@ export function watch(
   if (once && cb) {
     const _cb = cb
     cb = (...args) => {
-      _cb(...args)
+      const res = _cb(...args)
       watchHandle()
+      return res
     }
   }
 
@@ -412,6 +413,7 @@ export function watch(
        * - hasChanged: 单值比较
        */
       if (
+        immediateFirstRun ||
         deep ||
         forceTrigger ||
         (isMultiSource

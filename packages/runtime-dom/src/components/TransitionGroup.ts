@@ -50,7 +50,6 @@
  */
 
 import {
-import {
   type ElementWithTransition,
   type TransitionProps,
   TransitionPropsValidators,
@@ -61,6 +60,7 @@ import {
   resolveTransitionProps,
   vtcKey,
 } from './Transition'
+import { type VShowElement, vShowHidden } from '../directives/vShow'
 import {
   type ComponentOptions,
   DeprecationTypes,
@@ -191,7 +191,12 @@ const TransitionGroupImpl: ComponentOptions = /*@__PURE__*/ decorate({
       if (children) {
         for (let i = 0; i < children.length; i++) {
           const child = children[i]
-          if (child.el && child.el instanceof Element) {
+          if (
+            child.el &&
+            child.el instanceof Element &&
+            // Hidden v-show nodes have no previous layout box to animate from.
+            !(child.el as VShowElement)[vShowHidden]
+          ) {
             prevChildren.push(child)
             setTransitionHooks(
               child,

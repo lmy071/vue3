@@ -2636,6 +2636,46 @@ describe('SSR hydration', () => {
       expect(`Hydration node mismatch`).not.toHaveBeenWarned()
     })
 
+    test('comment mismatch (v-if)', () => {
+      const { container } = mountWithHydration(`<!--v-if-->`, () =>
+        h('div', { 'data-allow-mismatch': '' }, [h('span', 'value')]),
+      )
+      expect(container.innerHTML).toBe(
+        '<div data-allow-mismatch=""><span>value</span></div>',
+      )
+      expect(`Hydration node mismatch`).not.toHaveBeenWarned()
+    })
+
+    test('comment mismatch (v-if branch removed)', () => {
+      const { container } = mountWithHydration(
+        `<div data-allow-mismatch=""><span>value</span></div>`,
+        () => createCommentVNode('v-if', true),
+      )
+      expect(container.innerHTML).toBe('<!--v-if-->')
+      expect(`Hydration node mismatch`).not.toHaveBeenWarned()
+    })
+
+    test('node mismatch (v-else branches)', () => {
+      const { container } = mountWithHydration(
+        `<span data-allow-mismatch="">server</span>`,
+        () => h('div', { 'data-allow-mismatch': '' }, 'client'),
+      )
+      expect(container.innerHTML).toBe(
+        '<div data-allow-mismatch="">client</div>',
+      )
+      expect(`Hydration node mismatch`).not.toHaveBeenWarned()
+    })
+
+    test('comment mismatch (v-if) only allows children mismatches', () => {
+      const { container } = mountWithHydration(`<!--v-if-->`, () =>
+        h('div', { 'data-allow-mismatch': 'class' }, [h('span', 'value')]),
+      )
+      expect(container.innerHTML).toBe(
+        '<div data-allow-mismatch="class"><span>value</span></div>',
+      )
+      expect(`Hydration node mismatch`).toHaveBeenWarned()
+    })
+
     test('comment mismatch (text)', () => {
       const { container } = mountWithHydration(
         `<div data-allow-mismatch="children">foobar</div>`,
@@ -2672,6 +2712,53 @@ describe('SSR hydration', () => {
         () => h('div', { id: 'foo' }),
       )
       expect(`Hydration attribute mismatch`).not.toHaveBeenWarned()
+    })
+
+    // #9033
+    test('force patch dynamic props when hydrating', () => {
+      __DEV__ = false
+      try {
+        const { container } = mountWithHydration(
+          `<div><div>server</div></div>`,
+          () => (
+            openBlock(),
+            createElementBlock('div', null, [
+              createElementVNode(
+                'div',
+                { innerHTML: 'client' },
+                null,
+                PatchFlags.PROPS,
+                ['innerHTML'],
+              ),
+            ])
+          ),
+        )
+        expect(container.innerHTML).toBe(`<div><div>client</div></div>`)
+      } finally {
+        __DEV__ = true
+      }
+    })
+
+    test('only patches declared dynamic props when hydrating', () => {
+      const { container } = mountWithHydration(
+        `<div data-allow-mismatch="attribute" id="server" value="server"></div>`,
+        () =>
+          createVNode(
+            'div',
+            {
+              'data-allow-mismatch': 'attribute',
+              id: 'client',
+              value: 'client',
+            },
+            null,
+            PatchFlags.PROPS,
+            ['id'],
+          ),
+      )
+      const el = container.firstChild as Element
+
+      expect(el.getAttribute('id')).toBe('client')
+      expect(el.getAttribute('value')).toBe('server')
     })
   })
 })

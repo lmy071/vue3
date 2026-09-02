@@ -24,7 +24,6 @@
  */
 
 import {
-import {
   Fragment,
   Static,
   type VNode,

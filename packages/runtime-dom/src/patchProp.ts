@@ -29,7 +29,6 @@
  */
 
 import { patchClass } from './modules/class'
-import { patchClass } from './modules/class'
 import { patchStyle } from './modules/style'
 import { patchAttr } from './modules/attrs'
 import { patchDOMProp } from './modules/props'

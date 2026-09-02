@@ -19,7 +19,6 @@
  */
 
 import { DeprecationTypes, compatUtils, warn } from '@vue/runtime-core'
-import { DeprecationTypes, compatUtils, warn } from '@vue/runtime-core'
 import { includeBooleanAttr } from '@vue/shared'
 import { unsafeToTrustedHTML } from '../nodeOps'
 

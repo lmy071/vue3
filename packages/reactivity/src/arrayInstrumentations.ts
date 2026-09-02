@@ -396,6 +396,7 @@ function apply(
 ) {
   const arr = shallowReadArray(self)
   const needsWrap = arr !== self && !isShallow(self)
+  // @ts-expect-error our code is limited to es2016 but user code is not
   const methodFn = arr[method]
 
   // #11759: 如果方法被用户扩展 → 直接 apply 原始参数

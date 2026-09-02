@@ -36,7 +36,6 @@
  */
 
 import {
-import {
   type DirectiveBinding,
   type DirectiveHook,
   type ObjectDirective,

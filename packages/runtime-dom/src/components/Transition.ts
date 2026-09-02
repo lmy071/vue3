@@ -62,7 +62,6 @@
  */
 
 import {
-import {
   BaseTransition,
   type BaseTransitionProps,
   BaseTransitionPropsValidators,

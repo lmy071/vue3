@@ -108,7 +108,7 @@ const vBindRE = /v-bind\s*\(/g
 /**
  * 从所有 `<style>` 块中提取 v-bind() 变量名
  *
- * 先移除注释内容（/* */ 和 //）再匹配。
+ * 先移除块注释和行注释内容再匹配。
  */
 export function parseCssVars(sfc: SFCDescriptor): string[] {
   const vars: string[] = []
@@ -134,7 +134,7 @@ export function parseCssVars(sfc: SFCDescriptor): string[] {
  * 词法分析器状态
  */
 enum LexerState {
-  inParens,            // 在括号内
+  inParens, // 在括号内
   inSingleQuoteString, // 在单引号字符串内
   inDoubleQuoteString, // 在双引号字符串内
 }

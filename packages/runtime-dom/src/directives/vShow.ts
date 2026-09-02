@@ -23,7 +23,6 @@
  */
 
 import type { ObjectDirective } from '@vue/runtime-core'
-import type { ObjectDirective } from '@vue/runtime-core'
 
 export const vShowOriginalDisplay: unique symbol = Symbol('_vod')
 export const vShowHidden: unique symbol = Symbol('_vsh')

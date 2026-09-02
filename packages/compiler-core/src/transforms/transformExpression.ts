@@ -98,6 +98,7 @@ export const transformExpression: NodeTransform = (node, context) => {
           !(dir.name === 'on' && arg) &&
           !(
             memo &&
+            context.vForMemoKeyedNodes.has(node) &&
             arg &&
             arg.type === NodeTypes.SIMPLE_EXPRESSION &&
             arg.content === 'key'

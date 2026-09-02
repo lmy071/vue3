@@ -51,7 +51,6 @@
  */
 
 import {
-import {
   type App,
   type CreateAppFunction,
   type DefineComponent,

@@ -70,7 +70,6 @@
  */
 
 import {
-import {
   type App,
   type Component,
   type ComponentCustomElementInterface,

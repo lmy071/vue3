@@ -1,3 +1,43 @@
+## [3.5.39](https://github.com/vuejs/core/compare/v3.5.38...v3.5.39) (2026-06-25)
+
+
+### Bug Fixes
+
+* **compiler-core:** correct filter rewrite recursion ([#14959](https://github.com/vuejs/core/issues/14959)) ([be7ce31](https://github.com/vuejs/core/commit/be7ce314b96256f1c56f53088d51ed6bc77fde28))
+* **hydration:** force patch dynamic props when hydrating ([#9083](https://github.com/vuejs/core/issues/9083)) ([024cf06](https://github.com/vuejs/core/commit/024cf06daa33db4660431f20aa050acb99cff07f)), closes [#9033](https://github.com/vuejs/core/issues/9033)
+* **hydration:** respect data-allow-mismatch on conditional branches ([#12801](https://github.com/vuejs/core/issues/12801)) ([164af63](https://github.com/vuejs/core/commit/164af639a120421194f7afe0e097bdf254c90199)), closes [#12782](https://github.com/vuejs/core/issues/12782)
+* **reactivity:** avoid triggering effects when set fails ([#14964](https://github.com/vuejs/core/issues/14964)) ([e450973](https://github.com/vuejs/core/commit/e450973eabc0038f398344b981acd8759c246c50))
+* **runtime-core:** handle non-isomorphic block element update ([#15002](https://github.com/vuejs/core/issues/15002)) ([932ddd0](https://github.com/vuejs/core/commit/932ddd058d69be9bbd8cd796c89f0d1a4fc128d7)), closes [#6385](https://github.com/vuejs/core/issues/6385)
+* **runtime-core:** normalize function children for elements and Teleport ([#9108](https://github.com/vuejs/core/issues/9108)) ([2f374cd](https://github.com/vuejs/core/commit/2f374cda18cbe331ede1a49a324b423c75d0faf3)), closes [#9107](https://github.com/vuejs/core/issues/9107)
+* **runtime-core:** pause tracking when invoking function refs ([#14985](https://github.com/vuejs/core/issues/14985)) ([3ac052b](https://github.com/vuejs/core/commit/3ac052b6b1e9d3978e98cc30a1a89a9b9b51358b))
+* **runtime-core:** preserve once event listener name ([#8341](https://github.com/vuejs/core/issues/8341)) ([87b73b6](https://github.com/vuejs/core/commit/87b73b64a0d9b4e2dd2dacfe98f2f1c2396d7a61)), closes [#8342](https://github.com/vuejs/core/issues/8342)
+* **runtime-dom:** preserve option modifier event names ([#8338](https://github.com/vuejs/core/issues/8338)) ([4b659e6](https://github.com/vuejs/core/commit/4b659e699925555464ea9ae8fa3e1984609f6dc2)), closes [#8334](https://github.com/vuejs/core/issues/8334)
+* **ssr:** dedupe inherited scope ids during vnode rendering ([#15005](https://github.com/vuejs/core/issues/15005)) ([027da6b](https://github.com/vuejs/core/commit/027da6b2810c4752131439d2645f3d931d07242f)), closes [#12159](https://github.com/vuejs/core/issues/12159) [#12175](https://github.com/vuejs/core/issues/12175)
+* **ssr:** resolve nested async teleport content ([#9431](https://github.com/vuejs/core/issues/9431)) ([31d0f23](https://github.com/vuejs/core/commit/31d0f23757afb410c638a9c29d44d76d0944e18f)), closes [#6207](https://github.com/vuejs/core/issues/6207)
+* **teleport:** handle teleport unmount edge case ([#12705](https://github.com/vuejs/core/issues/12705)) ([671997a](https://github.com/vuejs/core/commit/671997ade74e34880cebe3c340269b8598c3b26c)), closes [#12702](https://github.com/vuejs/core/issues/12702)
+* **types:** support named tuple emits ([#12676](https://github.com/vuejs/core/issues/12676)) ([232f402](https://github.com/vuejs/core/commit/232f4022e3160b30b11748a6d97ea2c15ed3b74f)), closes [#12673](https://github.com/vuejs/core/issues/12673)
+* **types:** validate defineModel defaults ([#14968](https://github.com/vuejs/core/issues/14968)) ([747f57e](https://github.com/vuejs/core/commit/747f57e9cdb3c5f084f8da5ca7e0e0b7b326b662)), closes [#14966](https://github.com/vuejs/core/issues/14966)
+
+## [3.5.38](https://github.com/vuejs/core/compare/v3.5.37...v3.5.38) (2026-06-11)
+
+## [3.5.37](https://github.com/vuejs/core/compare/v3.5.36...v3.5.37) (2026-06-11)
+
+## [3.5.36](https://github.com/vuejs/core/compare/v3.5.35...v3.5.36) (2026-06-11)
+
+
+### Bug Fixes
+
+* **compiler-core:** avoid crash on CDATA at the document root ([#14916](https://github.com/vuejs/core/issues/14916)) ([0ea17e2](https://github.com/vuejs/core/commit/0ea17e232f9a8f4a9acf57c6addc78cf4f279c13))
+* **compiler-core:** prefix dynamic keys on v-memo elements ([#14922](https://github.com/vuejs/core/issues/14922)) ([68e978e](https://github.com/vuejs/core/commit/68e978e3e71a8ae40701808e78966f2168c5907c)), closes [#14920](https://github.com/vuejs/core/issues/14920)
+* **compiler-sfc:** handle vue-ignore on leading intersection/union type ([#14950](https://github.com/vuejs/core/issues/14950)) ([0dcd225](https://github.com/vuejs/core/commit/0dcd225c01f211ebb8ce4dda8c8eac10539abf1a)), closes [#12254](https://github.com/vuejs/core/issues/12254)
+* **compiler-sfc:** respect var hoisting in props destructure ([48ad452](https://github.com/vuejs/core/commit/48ad452dd61926a59e358da3c74c5ef750ae21c4))
+* **reactivity:** preserve watch callback return value when wrapped for `once: true` ([#14902](https://github.com/vuejs/core/issues/14902)) ([450a8a8](https://github.com/vuejs/core/commit/450a8a8e45520f30fe8343c5016a777d888e53fc))
+* **runtime-core:** add dev warning for silent catch in compat mode and fix test description typo ([#14891](https://github.com/vuejs/core/issues/14891)) ([db3e117](https://github.com/vuejs/core/commit/db3e117025a7193291ed6676180a5a44bbe0ae76))
+* **runtime-core:** force model update when reverted before sync ([#14897](https://github.com/vuejs/core/issues/14897)) ([7f76378](https://github.com/vuejs/core/commit/7f76378b0d178a29113ee07d67faa48b637944e8)), closes [#13524](https://github.com/vuejs/core/issues/13524)
+* **runtime-core:** skip async component callbacks after unmount ([#14911](https://github.com/vuejs/core/issues/14911)) ([5300ead](https://github.com/vuejs/core/commit/5300ead57b3c14942d4c155ef5e485d5409e7f02))
+* **transition:** avoid move transition for hidden v-show group children ([#14895](https://github.com/vuejs/core/issues/14895)) ([c11f6ee](https://github.com/vuejs/core/commit/c11f6ee644412edf3eef6736991e895e4a3e1dde)), closes [#14894](https://github.com/vuejs/core/issues/14894)
+* **watch:** trigger immediate callback for empty sources ([#14914](https://github.com/vuejs/core/issues/14914)) ([1f2ca7e](https://github.com/vuejs/core/commit/1f2ca7e4837b1b0de0b91048fffdb03710c0b03e)), closes [#14898](https://github.com/vuejs/core/issues/14898)
+
 ## [3.5.35](https://github.com/vuejs/core/compare/v3.5.34...v3.5.35) (2026-05-27)
 
 
